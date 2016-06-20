@@ -18,6 +18,7 @@ from psycopg2.extensions import ISOLATION_LEVEL_REPEATABLE_READ
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from psycopg2.extensions import register_type, register_adapter
 from psycopg2.extensions import UNICODE, AsIs
+from psycopg2.extras import Json
 try:
     from psycopg2.extensions import PYDATE, PYDATETIME, PYTIME, PYINTERVAL
 except ImportError:
@@ -364,3 +365,4 @@ if PYINTERVAL:
     register_type(PYINTERVAL)
 register_adapter(float, lambda value: AsIs(repr(value)))
 register_adapter(Decimal, lambda value: AsIs(str(value)))
+register_adapter(dict, Json)

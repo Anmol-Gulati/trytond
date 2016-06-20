@@ -20,3 +20,4 @@ from .function import *
 from .property import *
 from .one2one import *
 from .dict import *
+from .json import *
