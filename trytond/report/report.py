@@ -4,6 +4,8 @@ import os
 import datetime
 import tempfile
 import warnings
+import tempfile
+from fulfil_s3_temp_storage import put_file
 import subprocess
 warnings.simplefilter("ignore")
 import relatorio.reporting
@@ -147,6 +149,23 @@ class Report(URLMixin, PoolBase):
             cls.render(action_report, report_context))
         if not isinstance(content, unicode):
             content = bytearray(content) if bytes == str else bytes(content)
+
+        if Transaction().context.get('return_link'):
+            extension = '.' + oext
+            with tempfile.NamedTemporaryFile(
+                    suffix=extension, delete=False) as report_file:
+                report_file.write(buffer(data))
+            try:
+                s3_url = put_file(report_file.name)
+            except Exception:
+                # TODO: Handle S3 Errors
+                pass
+            else:
+                return (oext, s3_url, action_report.direct_print,
+                        action_report.name)
+            finally:
+                os.remove(report_file.name)
+
         return (oext, content, action_report.direct_print, action_report.name)
 
     @classmethod

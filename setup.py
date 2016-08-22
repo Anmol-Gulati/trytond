@@ -101,6 +101,7 @@ setup(name=name,
         'werkzeug',
         'wrapt',
         'blinker',
+        'fulfil-s3-temp-storage',
         ],
     extras_require={
         'PostgreSQL': pg_require,
