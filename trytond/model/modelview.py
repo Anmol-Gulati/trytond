@@ -527,7 +527,10 @@ class ModelView(Model):
                         break
             return views
 
-        for attr in ('name', 'icon'):
+        attribs = filter(
+            lambda x: x.startswith('data-'), element.attrib.keys())
+        attribs += ['name', 'icon']
+        for attr in attribs:
             if not element.get(attr):
                 continue
             fields_attrs.setdefault(element.get(attr), {})
