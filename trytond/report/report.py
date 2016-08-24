@@ -154,7 +154,7 @@ class Report(URLMixin, PoolBase):
             extension = '.' + oext
             with tempfile.NamedTemporaryFile(
                     suffix=extension, delete=False) as report_file:
-                report_file.write(buffer(data))
+                report_file.write(content)
             try:
                 s3_url = put_file(report_file.name)
             except Exception:
