@@ -46,6 +46,8 @@ class ModelStorage(Model):
     write_date = fields.Timestamp('Write Date', readonly=True)
     rec_name = fields.Function(fields.Char('Name'), 'get_rec_name',
             searcher='search_rec_name')
+    rec_blurb = fields.Function(fields.JSON('Blurb'), 'get_rec_blurb',
+            searcher='search_rec_blurb')
 
     @classmethod
     def __setup__(cls):
@@ -413,6 +415,17 @@ class ModelStorage(Model):
                     domain = ['AND', domain, ('active', '=', True)]
             return domain
         return process(domain)
+
+    def get_rec_blurb(self, name):
+        return {
+            'title': self.get_rec_name(name),
+            'subtitle': [],
+            'description': None
+        }
+
+    @classmethod
+    def search_rec_blurb(cls, name, clause):
+        return cls.search_rec_name(name, clause)
 
     def get_rec_name(self, name):
         '''
