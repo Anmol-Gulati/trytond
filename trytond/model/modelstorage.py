@@ -418,7 +418,7 @@ class ModelStorage(Model):
 
     def get_rec_blurb(self, name):
         return {
-            'title': self.get_rec_name(name),
+            'title': self.rec_name,
             'subtitle': [],
             'description': None
         }
