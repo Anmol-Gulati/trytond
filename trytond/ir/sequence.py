@@ -384,6 +384,4 @@ class SequenceStrict(Sequence):
 
     @classmethod
     def get_id(cls, clause):
-        transaction = Transaction()
-        transaction.database.lock(transaction.connection, cls._table)
         return super(SequenceStrict, cls).get_id(clause)
