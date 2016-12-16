@@ -568,7 +568,7 @@ class ModelView(Model):
                 element.set('width', str(fields_width[element.get('name')]))
 
         encoder = PYSONEncoder()
-        if element.tag == 'button':
+        if element.tag in ('button', 'bulk-action-button'):
             button_name = element.attrib['name']
             if button_name in cls._buttons:
                 states = cls._buttons[button_name]
