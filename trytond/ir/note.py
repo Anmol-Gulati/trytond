@@ -25,9 +25,14 @@ class Note(ResourceMixin, ModelSQL, ModelView):
         'on_change_with_message_wrapped')
     unread = fields.Function(fields.Boolean('Unread'), 'get_unread',
         searcher='search_unread', setter='set_unread')
+    is_public = fields.Boolean('Public')
 
     @staticmethod
     def default_unread():
+        return False
+
+    @staticmethod
+    def default_is_public():
         return False
 
     @classmethod
