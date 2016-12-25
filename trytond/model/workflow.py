@@ -3,6 +3,8 @@
 from collections import OrderedDict
 from functools import wraps
 
+from trytond.pool import Pool
+
 
 class Workflow(object):
     """
@@ -20,6 +22,8 @@ class Workflow(object):
         def check_transition(func):
             @wraps(func)
             def wrapper(cls, records, *args, **kwargs):
+                Activity = Pool().get('ir.activity')
+
                 filtered = []
                 to_update = OrderedDict()
 
@@ -40,6 +44,13 @@ class Workflow(object):
                     cls.write(list(to_update), {
                             cls._transition_state: state,
                             })
+
+                    Activity.create([{
+                        'type': state,
+                        'object_record': '%s,%s' % (record.__name__, record.id),
+                        'target_record': '%s,%s' % (record.__name__, record.id),
+                    } for record in to_update.keys()])
+
                 return result
             return wrapper
         return check_transition
