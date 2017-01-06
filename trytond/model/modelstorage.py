@@ -48,6 +48,7 @@ class ModelStorage(Model):
             searcher='search_rec_name')
     rec_blurb = fields.Function(fields.JSON('Blurb'), 'get_rec_blurb',
             searcher='search_rec_blurb')
+    metadata = fields.JSON("Metadata")
 
     @classmethod
     def __setup__(cls):
