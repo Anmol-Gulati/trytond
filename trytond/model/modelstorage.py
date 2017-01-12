@@ -49,6 +49,18 @@ class ModelStorage(Model):
     rec_blurb = fields.Function(fields.JSON('Blurb'), 'get_rec_blurb',
             searcher='search_rec_blurb')
     metadata = fields.JSON("Metadata")
+    public_notes = fields.Function(
+        fields.One2Many('ir.note', None, 'Public Notes'),
+        getter='get_notes', loading='lazy'
+    )
+    private_notes = fields.Function(
+        fields.One2Many('ir.note', None, 'Private Notes'),
+        getter='get_notes', loading='lazy'
+    )
+    attachments = fields.Function(
+        fields.One2Many('ir.attachment', None, 'Attachments'),
+        getter='get_attachments', loading='lazy'
+    )
 
     @classmethod
     def __setup__(cls):
@@ -447,6 +459,20 @@ class ModelStorage(Model):
         if rec_name not in cls._fields:
             return []
         return [(rec_name,) + tuple(clause[1:])]
+
+    def get_notes(self, name):
+        Note = Pool().get('ir.note')
+
+        return Note.search([
+            ('is_public', '=', name == 'public_notes'),
+            ('resource', '=', '%s,%s' % (self.__name__, self.id))
+        ])
+
+    def get_attachments(self, name):
+        Attachments = Pool().get('ir.attachment')
+        return Attachments.search([
+            ('resource', '=', '%s,%s' % (self.__name__, self.id))
+        ])
 
     @classmethod
     def search_global(cls, text):
