@@ -7,6 +7,7 @@
         <choice>
           <ref name="field"/>
           <ref name="button"/>
+          <ref name="bulk-action-button"/>
         </choice>
       </zeroOrMore>
     </element>
@@ -107,6 +108,7 @@
           <value>one2one</value>
           <value>binary</value>
           <value>image</value>
+          <value>blurb</value>
         </choice>
       </attribute>
     </optional>
@@ -238,6 +240,11 @@
   </define>
   <define name="attlist.button" combine="interleave">
     <optional>
+      <attribute name="icon"/>
+    </optional>
+  </define>
+  <define name="attlist.button" combine="interleave">
+    <optional>
       <attribute name="help"/>
     </optional>
   </define>
@@ -284,6 +291,46 @@
       </attribute>
     </optional>
   </define>
+
+  <define name="bulk-action-button">
+    <element name="bulk-action-button">
+      <ref name="attlist.bulk-action-button"/>
+      <empty/>
+    </element>
+  </define>
+  <define name="attlist.bulk-action-button" combine="interleave">
+    <optional>
+      <attribute name="string" a:defaultValue="Unknown"/>
+    </optional>
+  </define>
+  <define name="attlist.bulk-action-button" combine="interleave">
+    <optional>
+      <attribute name="icon"/>
+    </optional>
+  </define>
+  <define name="attlist.bulk-action-button" combine="interleave">
+    <optional>
+      <attribute name="confirm"/>
+    </optional>
+  </define>
+  <define name="attlist.bulk-action-button" combine="interleave">
+    <attribute name="name"/>
+  </define>
+  <define name="attlist.bulk-action-button" combine="interleave">
+    <optional>
+      <attribute name="states"/>
+    </optional>
+  </define>
+  <define name="attlist.bulk-action-button" combine="interleave">
+    <optional>
+      <attribute name="type">
+        <choice>
+          <value>class</value>
+          <value>instance</value>
+        </choice>
+      </attribute>
+    </optional>
+  </define>
   <define name="data">
     <element name="data">
       <ref name="attlist.data"/>
@@ -302,6 +349,7 @@
         <choice>
           <ref name="field"/>
           <ref name="button"/>
+          <ref name="bulk-action-button"/>
           <ref name="tree"/>
         </choice>
       </zeroOrMore>

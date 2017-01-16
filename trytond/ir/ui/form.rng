@@ -15,6 +15,8 @@
           <ref name="group"/>
           <ref name="hpaned"/>
           <ref name="vpaned"/>
+          <ref name="card"/>
+          <ref name="container"/>
         </choice>
       </zeroOrMore>
     </element>
@@ -287,6 +289,11 @@
   </define>
   <define name="attlist.field" combine="interleave">
     <optional>
+      <attribute name="quick_add_view_id"/>
+    </optional>
+  </define>
+  <define name="attlist.field" combine="interleave">
+    <optional>
       <attribute name="product"/>
     </optional>
   </define>
@@ -298,6 +305,21 @@
           <value>1</value>
         </choice>
       </attribute>
+    </optional>
+  </define>
+  <define name="attlist.field" combine="interleave">
+    <optional>
+      <attribute name="sum"/>
+    </optional>
+  </define>
+  <define name="attlist.field" combine="interleave">
+    <optional>
+      <attribute name="key"/>
+    </optional>
+  </define>
+  <define name="attlist.field" combine="interleave">
+    <optional>
+      <attribute name="color"/>
     </optional>
   </define>
   <define name="attlist.field" combine="interleave">
@@ -315,6 +337,21 @@
   <define name="attlist.field" combine="interleave">
     <optional>
       <attribute name="spell"/>
+    </optional>
+  </define>
+  <define name="attlist.field" combine="interleave">
+    <optional>
+      <attribute name="timedelta"/>
+    </optional>
+  </define>
+  <define name="attlist.field" combine="interleave">
+    <optional>
+      <attribute name="img_width"/>
+    </optional>
+  </define>
+  <define name="attlist.field" combine="interleave">
+    <optional>
+      <attribute name="img_height"/>
     </optional>
   </define>
   <define name="attlist.field" combine="interleave">
@@ -819,6 +856,8 @@
           <ref name="form"/>
           <ref name="page"/>
           <ref name="child"/>
+          <ref name="card"/>
+          <ref name="container"/>
         </choice>
       </zeroOrMore>
     </element>
@@ -837,6 +876,162 @@
           <value>before</value>
         </choice>
       </attribute>
+    </optional>
+  </define>
+  <define name="card">
+    <element name="card">
+      <ref name="attlist.card"/>
+      <zeroOrMore>
+        <choice>
+          <ref name="label"/>
+          <ref name="field"/>
+          <ref name="image"/>
+          <ref name="separator"/>
+          <ref name="newline"/>
+          <ref name="button"/>
+          <ref name="notebook"/>
+          <ref name="group"/>
+          <ref name="hpaned"/>
+          <ref name="vpaned"/>
+          <ref name="card"/>
+          <ref name="metric"/>
+          <ref name="chart"/>
+        </choice>
+      </zeroOrMore>
+    </element>
+  </define>
+  <define name="attlist.card" combine="interleave">
+    <optional>
+      <attribute name="string"/>
+    </optional>
+  </define>
+  <define name="attlist.card" combine="interleave">
+    <optional>
+      <attribute name="hide-on-create">
+        <choice>
+          <value>false</value>
+          <value>true</value>
+        </choice>
+      </attribute>
+    </optional>
+  </define>
+  <define name="attlist.card" combine="interleave">
+    <optional>
+      <attribute name="highlight">
+        <choice>
+          <value>false</value>
+          <value>true</value>
+        </choice>
+      </attribute>
+    </optional>
+  </define>
+  <define name="attlist.card" combine="interleave">
+    <optional>
+      <attribute name="help"/>
+    </optional>
+  </define>
+  <define name="attlist.card" combine="interleave">
+    <optional>
+      <attribute name="colspan" a:defaultValue="1"/>
+    </optional>
+  </define>
+  <define name="attlist.card" combine="interleave">
+    <optional>
+      <attribute name="col" a:defaultValue="4"/>
+    </optional>
+  </define>
+  <define name="attlist.card" combine="interleave">
+    <choice>
+      <attribute name="name"/>
+      <attribute name="id"/>
+    </choice>
+  </define>
+  <define name="attlist.card" combine="interleave">
+    <optional>
+      <attribute name="states"/>
+    </optional>
+  </define>
+  <define name="container">
+    <element name="container">
+      <ref name="attlist.container"/>
+      <zeroOrMore>
+        <choice>
+          <ref name="label"/>
+          <ref name="field"/>
+          <ref name="image"/>
+          <ref name="separator"/>
+          <ref name="newline"/>
+          <ref name="button"/>
+          <ref name="notebook"/>
+          <ref name="group"/>
+          <ref name="hpaned"/>
+          <ref name="vpaned"/>
+          <ref name="card"/>
+          <ref name="container"/>
+        </choice>
+      </zeroOrMore>
+    </element>
+  </define>
+  <define name="attlist.container" combine="interleave">
+    <optional>
+      <attribute name="colspan" a:defaultValue="1"/>
+    </optional>
+  </define>
+  <define name="attlist.container" combine="interleave">
+    <optional>
+      <attribute name="col" a:defaultValue="1"/>
+    </optional>
+  </define>
+  <define name="metric">
+    <element name="metric">
+      <ref name="attlist.metric"/>
+    </element>
+  </define>
+  <define name="attlist.metric" combine="interleave">
+    <optional>
+      <attribute name="name" />
+    </optional>
+  </define>
+  <define name="attlist.metric" combine="interleave">
+    <optional>
+      <attribute name="string" />
+    </optional>
+  </define>
+  <define name="attlist.metric" combine="interleave">
+    <optional>
+      <attribute name="colspan" a:defaultValue="1"/>
+    </optional>
+  </define>
+  <define name="attlist.metric" combine="interleave">
+    <optional>
+      <attribute name="col" a:defaultValue="1"/>
+    </optional>
+  </define>
+  <define name="attlist.metric" combine="interleave">
+    <optional>
+      <attribute name="type" a:defaultValue="number">
+        <choice>
+          <value>money</value>
+          <value>number</value>
+          <value>percentage</value>
+        </choice>
+      </attribute>
+    </optional>
+  </define>
+  <!-- XXX: Fix this to adapt "data-*" attribute name -->
+  <define name="attlist.metric" combine="interleave">
+    <optional>
+      <attribute name="data-currency-symbol" />
+    </optional>
+  </define>
+  <define name="chart">
+    <element name="chart">
+      <ref name="attlist.chart"/>
+    </element>
+  </define>
+  <define name="attlist.chart" combine="interleave">
+    <optional>
+      <attribute name="method" />
     </optional>
   </define>
   <start>
