@@ -77,7 +77,9 @@ class ModelStorage(Model):
                         result=lambda r: map(int, r)),
                     'search': RPC(result=lambda r: map(int, r)),
                     'search_count': RPC(),
+                    'full_text_search_count': RPC(),
                     'search_read': RPC(),
+                    'full_text_search_read': RPC(),
                     'export_data': RPC(instantiate=0),
                     'import_data': RPC(readonly=False),
                     })
@@ -376,6 +378,17 @@ class ModelStorage(Model):
         return res
 
     @classmethod
+    def full_text_search_count(cls, text, domain):
+        '''
+        Downstream modules can override this behaviour for full text search
+        '''
+        if text is not None:
+            for name in text.split(' '):
+                domain.append(('rec_name', 'ilike', '%%%s%%' % name))
+
+        return cls.search_count(domain)
+
+    @classmethod
     def search_read(cls, domain, offset=0, limit=None, order=None,
             fields_names=None):
         '''
@@ -392,6 +405,18 @@ class ModelStorage(Model):
         index = {r.id: i for i, r in enumerate(records)}
         rows.sort(key=lambda r: index[r['id']])
         return rows
+
+    @classmethod
+    def full_text_search_read(cls, text, domain, offset=0, limit=None,
+            order=None, fields_names=None):
+        '''
+        Downstream modules can override this behaviour for full text search
+        '''
+        if text is not None:
+            for name in text.split(' '):
+                domain.append(('rec_name', 'ilike', '%%%s%%' % name))
+
+        return cls.search_read(domain, offset, limit, order, fields_names)
 
     @classmethod
     def _search_domain_active(cls, domain, active_test=True):
