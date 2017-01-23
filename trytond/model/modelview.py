@@ -280,6 +280,18 @@ class ModelView(Model):
                         ('inherit', '!=', None),
                         ],
                     ])
+            raise_p = False
+            while True:
+                try:
+                    views.sort(key=lambda x:
+                        cls._modules_list.index(x.module or None))
+                    break
+                except ValueError:
+                    if raise_p:
+                        raise
+                    # There is perhaps a new module in the directory
+                    ModelView._reset_modules_list()
+                    raise_p = True
             parser = etree.XMLParser(remove_comments=True)
             tree = etree.fromstring(result['arch'], parser=parser)
             for view in views:
