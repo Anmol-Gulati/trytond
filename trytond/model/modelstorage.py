@@ -524,6 +524,12 @@ class ModelStorage(Model):
                 _transaction_cache=transaction_cache,
                 _transaction=transaction) for x in ids]
 
+    def get_activities(self):
+        Activity = Pool().get('ir.activity')
+        return Activity.search([
+            ('target_record', '=', '%s,%d' % (self.__name__, self.id))
+        ])
+
     @staticmethod
     def __export_row(record, fields_names):
         pool = Pool()
