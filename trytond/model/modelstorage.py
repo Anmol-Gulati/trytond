@@ -48,7 +48,7 @@ class ModelStorage(Model):
             searcher='search_rec_name')
     rec_blurb = fields.Function(fields.JSON('Blurb'), 'get_rec_blurb',
             searcher='search_rec_blurb')
-    metadata = fields.JSON("Metadata")
+    metadata = fields.JSON("Metadata", loading='lazy')
     public_notes = fields.Function(
         fields.One2Many('ir.note', None, 'Public Notes'),
         getter='get_notes', loading='lazy'
