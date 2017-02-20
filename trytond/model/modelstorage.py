@@ -82,6 +82,8 @@ class ModelStorage(Model):
                     'full_text_search_read': RPC(),
                     'export_data': RPC(instantiate=0),
                     'import_data': RPC(readonly=False),
+                    'archive': RPC(readonly=False, instantiate=0),
+                    'restore': RPC(readonly=False, instantiate=0),
                     })
         cls._constraints = []
 
@@ -529,6 +531,26 @@ class ModelStorage(Model):
         return Activity.search([
             ('target_record', '=', '%s,%d' % (self.__name__, self.id))
         ])
+
+    @classmethod
+    def archive(cls, records):
+        """
+        Archive records
+        """
+        if not hasattr(cls, 'active'):
+            raise NotImplementedError("'active' field is not implemented")
+
+        cls.write(records, {'active': False})
+
+    @classmethod
+    def restore(cls, records):
+        """
+        Restore records
+        """
+        if not hasattr(cls, 'active'):
+            raise NotImplementedError("'active' field is not implemented")
+
+        cls.write(records, {'active': True})
 
     @staticmethod
     def __export_row(record, fields_names):
