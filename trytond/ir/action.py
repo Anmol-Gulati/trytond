@@ -858,7 +858,7 @@ class ActionActWindow(ActionMixin, ModelSQL, ModelView):
             for view in self.act_window_views]
 
     def get_domains(self, name):
-        return [(domain.name, domain.domain or '[]')
+        return [(domain.name, domain.domain or '[]', domain.order)
             for domain in self.act_window_domains]
 
     @classmethod
