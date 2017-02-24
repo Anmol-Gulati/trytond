@@ -380,13 +380,19 @@ class ModelStorage(Model):
         return res
 
     @classmethod
+    def full_text_search_domain(cls, text, domain):
+        """Downstream modules can override this method to redefine the domain"""
+        if text is not None:
+            for name in text.split(' '):
+                domain.append(('rec_name', 'ilike', '%%%s%%' % name))
+        return domain
+
+    @classmethod
     def full_text_search_count(cls, text, domain):
         '''
         Downstream modules can override this behaviour for full text search
         '''
-        if text is not None:
-            for name in text.split(' '):
-                domain.append(('rec_name', 'ilike', '%%%s%%' % name))
+        domain = cls.full_text_search_domain(text, domain)
 
         return cls.search_count(domain)
 
@@ -414,9 +420,7 @@ class ModelStorage(Model):
         '''
         Downstream modules can override this behaviour for full text search
         '''
-        if text is not None:
-            for name in text.split(' '):
-                domain.append(('rec_name', 'ilike', '%%%s%%' % name))
+        domain = cls.full_text_search_domain(text, domain)
 
         return cls.search_read(domain, offset, limit, order, fields_names)
 
