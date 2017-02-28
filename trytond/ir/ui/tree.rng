@@ -109,7 +109,7 @@
           <value>binary</value>
           <value>image</value>
           <value>blurb</value>
-          <value>html</value>
+          <value>htmleditor</value>
         </choice>
       </attribute>
     </optional>
