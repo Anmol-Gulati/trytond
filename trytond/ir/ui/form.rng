@@ -168,7 +168,7 @@
           <value>richtext</value>
           <value>dict</value>
           <value>multiselection</value>
-          <value>html</value>
+          <value>htmleditor</value>
         </choice>
       </attribute>
     </optional>
