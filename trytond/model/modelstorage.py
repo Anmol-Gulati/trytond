@@ -271,6 +271,7 @@ class ModelStorage(Model):
         '''
         pool = Pool()
         Lang = pool.get('ir.lang')
+        Activity = pool.get('ir.activity')
         if default is None:
             default = {}
 
@@ -358,6 +359,14 @@ class ModelStorage(Model):
                             data_id = data['id']
                             data = convert_data(fields_translate, data)
                             cls.write([cls(new_ids[data_id])], data)
+
+        # Create an activity event on the record where duplication originated
+        for origin_id, target_id in new_ids.iteritems():
+            Activity.create([{
+                'type': 'duplicate',
+                'object_record': '%s,%d' % (cls.__name__, target_id),
+                'target_record': '%s,%d' % (cls.__name__, origin_id),
+            }])
         return cls.browse(new_ids.values())
 
     @classmethod
