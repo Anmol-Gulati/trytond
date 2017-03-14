@@ -76,6 +76,7 @@ class ModelStorage(Model):
                     'copy': RPC(readonly=False, instantiate=0,
                         result=lambda r: map(int, r)),
                     'search': RPC(result=lambda r: map(int, r)),
+                    'full_text_search': RPC(result=lambda r: map(int, r)),
                     'search_count': RPC(),
                     'full_text_search_count': RPC(),
                     'search_read': RPC(),
@@ -368,6 +369,16 @@ class ModelStorage(Model):
         if count:
             return 0
         return []
+
+    @classmethod
+    def full_text_search(cls, text, domain, offset=0, limit=None, order=None,
+                         count=False):
+        '''
+        Downstream modules can override this behaviour for full text search
+        '''
+        domain = cls.full_text_search_domain(text, domain)
+
+        return cls.search(domain, offset, limit, order, count)
 
     @classmethod
     def search_count(cls, domain):
