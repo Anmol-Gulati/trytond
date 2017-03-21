@@ -169,6 +169,8 @@
           <value>dict</value>
           <value>multiselection</value>
           <value>htmleditor</value>
+          <value>monthStart</value>
+          <value>monthEnd</value>
         </choice>
       </attribute>
     </optional>
