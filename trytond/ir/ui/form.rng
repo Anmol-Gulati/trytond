@@ -168,7 +168,7 @@
           <value>richtext</value>
           <value>dict</value>
           <value>multiselection</value>
-          <value>htmleditor</value>
+          <value>code-editor</value>
           <value>monthStart</value>
           <value>monthEnd</value>
         </choice>
@@ -303,6 +303,16 @@
   <define name="attlist.field" combine="interleave">
     <optional>
       <attribute name="ff-google-address-autocomplete"/>
+    </optional>
+  </define>
+  <define name="attlist.field" combine="interleave">
+    <optional>
+      <attribute name="data-preview"/>
+    </optional>
+  </define>
+  <define name="attlist.field" combine="interleave">
+    <optional>
+      <attribute name="editor-mode"/>
     </optional>
   </define>
   <define name="attlist.field" combine="interleave">
