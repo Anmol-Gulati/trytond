@@ -57,9 +57,8 @@ class ModelStorage(Model):
         fields.One2Many('ir.note', None, 'Private Notes'),
         getter='get_notes', loading='lazy'
     )
-    attachments = fields.Function(
-        fields.One2Many('ir.attachment', None, 'Attachments'),
-        getter='get_attachments', loading='lazy'
+    attachments = fields.One2Many(
+        'ir.attachment', 'resource', 'Attachments', loading='lazy'
     )
 
     @classmethod
@@ -516,12 +515,6 @@ class ModelStorage(Model):
 
         return Note.search([
             ('is_public', '=', name == 'public_notes'),
-            ('resource', '=', '%s,%s' % (self.__name__, self.id))
-        ])
-
-    def get_attachments(self, name):
-        Attachments = Pool().get('ir.attachment')
-        return Attachments.search([
             ('resource', '=', '%s,%s' % (self.__name__, self.id))
         ])
 
