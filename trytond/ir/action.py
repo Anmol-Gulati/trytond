@@ -108,16 +108,22 @@ class ActionKeyword(ModelSQL, ModelView):
             ('graph_open', 'Open Graph'),
             ], string='Keyword', required=True)
     model = fields.Reference('Model', selection='models_get')
+    sequence = fields.Integer('Sequence', select=True, required=True)
     action = fields.Many2One('ir.action', 'Action',
         ondelete='CASCADE', select=True)
     groups = fields.Function(fields.One2Many('res.group', None, 'Groups'),
         'get_groups', searcher='search_groups')
     _get_keyword_cache = Cache('ir_action_keyword.get_keyword')
 
+    @staticmethod
+    def default_sequence():
+        return 10
+
     @classmethod
     def __setup__(cls):
         super(ActionKeyword, cls).__setup__()
         cls.__rpc__.update({'get_keyword': RPC()})
+        cls._order.insert(0, ('sequence', 'ASC'))
         cls._error_messages.update({
                 'wrong_wizard_model': ('Wrong wizard model in keyword action '
                     '"%s".'),
@@ -221,14 +227,18 @@ class ActionKeyword(ModelSQL, ModelView):
                     ],
                 ]
         clause = [clause, ('action.active', '=', True)]
-        action_keywords = cls.search(clause, order=[])
+        action_keywords = cls.search(clause)
         types = defaultdict(list)
         for action_keyword in action_keywords:
             type_ = action_keyword.action.type
             types[type_].append(action_keyword.action.id)
+
         for type_, action_ids in types.iteritems():
             keywords.extend(Action.get_action_values(type_, action_ids))
-        keywords.sort(key=itemgetter('name'))
+
+        keywords.sort(key=lambda k: map(
+            lambda a: a.action.id, action_keywords
+        ).index(k['id']))
         cls._get_keyword_cache.set(key, keywords)
         return keywords
 
