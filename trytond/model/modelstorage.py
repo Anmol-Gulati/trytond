@@ -84,8 +84,19 @@ class ModelStorage(Model):
                     'import_data': RPC(readonly=False),
                     'archive': RPC(readonly=False, instantiate=0),
                     'restore': RPC(readonly=False, instantiate=0),
+                    'search_count_list': RPC(readonly=False)
                     })
         cls._constraints = []
+
+    @classmethod
+    def search_count_list(cls, domains):
+        "Takes a list of tuple having domain and context and returns counts"
+        counts = []
+        for domain, context in domains:
+            context = context or {}
+            with Transaction().set_context(**context):
+                counts.append(cls.search_count(domain))
+        return counts
 
     @staticmethod
     def default_create_uid():
