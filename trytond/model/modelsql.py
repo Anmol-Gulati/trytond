@@ -822,6 +822,26 @@ class ModelSQL(ModelStorage):
                     del target['id']
                     fields_related2values[fname][row[fname]] = target
 
+            elif field._type in ('one2many', 'many2many'):
+                if hasattr(field, 'model_name'):
+                    Target = pool.get(field.model_name)
+                else:
+                    Target = field.get_target()
+                related = 'rec_name'
+                if related in fields_related[fname]:
+                    for row in result:
+                        if not row[fname]:
+                            continue
+                        targets = Target.read(row[fname], [related])
+                        related_name = "\n".join(
+                            map(lambda t: t[related], targets)
+                        )
+                        fields_related2values[fname].setdefault(row[fname], {})
+                        fields_related2values[
+                                fname][row[fname]][row['id']] = {
+                                    related: related_name
+                                }
+
         if to_del or fields_related or datetime_fields:
             for row in result:
                 for fname in fields_related:
@@ -843,6 +863,10 @@ class ModelSQL(ModelStorage):
                                     if record_id >= 0:
                                         value = fields_related2values[fname][
                                             row[fname]][related]
+                            elif field._type in ('one2many', 'many2many'):
+                                if related == 'rec_name':
+                                    value = fields_related2values[fname][
+                                        row[fname]][row['id']][related]
                         row[related_name] = value
                 for field in to_del:
                     del row[field]
