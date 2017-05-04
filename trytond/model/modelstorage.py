@@ -566,7 +566,7 @@ class ModelStorage(Model):
         Archive records
         """
         if not hasattr(cls, 'active'):
-            raise NotImplementedError("'active' field is not implemented")
+            raise cls.raise_user_error('This record can not be archived.')
 
         cls.write(records, {'active': False})
 
@@ -576,7 +576,7 @@ class ModelStorage(Model):
         Restore records
         """
         if not hasattr(cls, 'active'):
-            raise NotImplementedError("'active' field is not implemented")
+            raise cls.raise_user_error('This record can not be restored.')
 
         cls.write(records, {'active': True})
 
