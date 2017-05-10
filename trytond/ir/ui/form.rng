@@ -327,6 +327,16 @@
   </define>
   <define name="attlist.field" combine="interleave">
     <optional>
+      <attribute name="create-button"/>
+    </optional>
+  </define>
+  <define name="attlist.field" combine="interleave">
+    <optional>
+      <attribute name="create-button-text"/>
+    </optional>
+  </define>
+  <define name="attlist.field" combine="interleave">
+    <optional>
       <attribute name="invisible" a:defaultValue="0">
         <choice>
           <value>0</value>
