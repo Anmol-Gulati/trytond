@@ -225,7 +225,7 @@ class Model(WarningErrorMixin, URLMixin, PoolBase):
                 if res[field].get('states') and \
                         'readonly' in res[field]['states']:
                     del res[field]['states']['readonly']
-            for arg in ('digits', 'invisible'):
+            for arg in ('digits', 'invisible', 'currency_symbol'):
                 if hasattr(cls._fields[field], arg) \
                         and getattr(cls._fields[field], arg):
                     res[field][arg] = copy.copy(getattr(cls._fields[field],
@@ -326,7 +326,7 @@ class Model(WarningErrorMixin, URLMixin, PoolBase):
 
             # convert attributes into pyson
             for attr in ('states', 'domain', 'context', 'digits', 'size',
-                    'add_remove', 'format'):
+                    'add_remove', 'format', 'currency_symbol'):
                 if attr in res[field]:
                     res[field][attr] = encoder.encode(res[field][attr])
 
