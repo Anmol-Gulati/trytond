@@ -970,6 +970,11 @@
   </define>
   <define name="attlist.card" combine="interleave">
     <optional>
+      <attribute name="help-article-id"/>
+    </optional>
+  </define>
+  <define name="attlist.card" combine="interleave">
+    <optional>
       <attribute name="colspan" a:defaultValue="1"/>
     </optional>
   </define>
