@@ -638,6 +638,11 @@
   </define>
   <define name="attlist.button" combine="interleave">
     <optional>
+      <attribute name="color"/>
+    </optional>
+  </define>
+  <define name="attlist.button" combine="interleave">
+    <optional>
       <attribute name="type">
         <choice>
           <value>class</value>
