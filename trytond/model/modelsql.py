@@ -830,15 +830,16 @@ class ModelSQL(ModelStorage):
                 related = 'rec_name'
                 if related in fields_related[fname]:
                     for row in result:
-                        if not row[fname]:
+                        target_ids = tuple(row[fname])
+                        if not target_ids:
                             continue
-                        targets = Target.read(row[fname], [related])
+                        targets = Target.read(list(target_ids), [related])
                         related_name = "\n".join(
                             map(lambda t: t[related], targets)
                         )
-                        fields_related2values[fname].setdefault(row[fname], {})
+                        fields_related2values[fname].setdefault(target_ids, {})
                         fields_related2values[
-                                fname][row[fname]][row['id']] = {
+                                fname][target_ids][row['id']] = {
                                     related: related_name
                                 }
 
@@ -866,7 +867,7 @@ class ModelSQL(ModelStorage):
                             elif field._type in ('one2many', 'many2many'):
                                 if related == 'rec_name':
                                     value = fields_related2values[fname][
-                                        row[fname]][row['id']][related]
+                                        tuple(row[fname])][row['id']][related]
                         row[related_name] = value
                 for field in to_del:
                     del row[field]
