@@ -830,7 +830,7 @@ class ModelSQL(ModelStorage):
                 related = 'rec_name'
                 if related in fields_related[fname]:
                     for row in result:
-                        target_ids = tuple(row[fname])
+                        target_ids = row[fname] and tuple(row[fname])
                         if not target_ids:
                             continue
                         targets = Target.read(list(target_ids), [related])
