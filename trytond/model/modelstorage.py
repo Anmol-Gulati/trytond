@@ -524,10 +524,10 @@ class ModelStorage(Model):
     def get_notes(self, name):
         Note = Pool().get('ir.note')
 
-        return Note.search([
+        return map(int, Note.search([
             ('is_public', '=', name == 'public_notes'),
             ('resource', '=', '%s,%s' % (self.__name__, self.id))
-        ])
+        ]))
 
     @classmethod
     def search_global(cls, text):
