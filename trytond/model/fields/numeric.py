@@ -6,6 +6,7 @@ from sql import Query, Expression, Cast, Literal, Select, CombiningQuery, As
 from ... import backend
 from .field import SQLType
 from .float import Float
+from ...pyson import PYSON
 
 
 class SQLite_Cast(Cast):
@@ -14,12 +15,41 @@ class SQLite_Cast(Cast):
         # Use PARSE_COLNAMES instead of CAST for final column
         return As(self.expression, '%s [NUMERIC]' % output_name)
 
+def currency_symbol_validate(value):
+    if value:
+        assert isinstance(value, PYSON), 'value must be a PYSON'
 
 class Numeric(Float):
     '''
     Define a numeric field (``decimal``).
     '''
     _type = 'numeric'
+
+    def __init__(self, string='', digits=None, help='', required=False,
+            readonly=False, domain=None, states=None, select=False,
+            on_change=None, on_change_with=None, depends=None,
+            context=None, loading='eager', currency_symbol=None):
+        '''
+        :param currency_symbol: a list of two integers defining the total
+            of digits and the number of decimals of the float.
+        '''
+        super(Numeric, self).__init__(string=string, help=help,
+            required=required, readonly=readonly, domain=domain, states=states,
+            select=select, on_change=on_change, on_change_with=on_change_with,
+            depends=depends, context=context, loading=loading, digits=digits)
+        self.__currency_symbol = None
+        self.currency_symbol = currency_symbol
+
+    __init__.__doc__ += Float.__init__.__doc__
+
+    def _get_currency_symbol(self):
+        return self.__currency_symbol
+
+    def _set_currency_symbol(self, value):
+        currency_symbol_validate(value)
+        self.__currency_symbol = value
+
+    currency_symbol = property(_get_currency_symbol, _set_currency_symbol)
 
     @staticmethod
     def sql_format(value):
