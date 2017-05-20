@@ -29,4 +29,6 @@ attlist.menuitem &= attribute parent { text }?
 attlist.menuitem &= attribute action { text }?
 attlist.menuitem &= attribute groups { text }?
 attlist.menuitem &= attribute active { text }?
+attlist.menuitem &= attribute in_page { "0" | "1" }?
+attlist.menuitem &= attribute help { text }?
 start = tryton
