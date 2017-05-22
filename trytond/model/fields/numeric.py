@@ -33,10 +33,10 @@ class Numeric(Float):
         :param currency_symbol: a list of two integers defining the total
             of digits and the number of decimals of the float.
         '''
-        super(Numeric, self).__init__(string=string, help=help,
+        super(Numeric, self).__init__(string=string, digits=digits, help=help,
             required=required, readonly=readonly, domain=domain, states=states,
             select=select, on_change=on_change, on_change_with=on_change_with,
-            depends=depends, context=context, loading=loading, digits=digits)
+            depends=depends, context=context, loading=loading)
         self.__currency_symbol = None
         self.currency_symbol = currency_symbol
 
