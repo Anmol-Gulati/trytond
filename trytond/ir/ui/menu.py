@@ -98,6 +98,8 @@ class UIMenu(ModelSQL, ModelView):
         'Action Keywords')
     active = fields.Boolean('Active')
     favorite = fields.Function(fields.Boolean('Favorite'), 'get_favorite')
+    in_page = fields.Boolean('Open In Page')
+    help = fields.Text('Help', translate=True)
 
     @classmethod
     def __setup__(cls):
