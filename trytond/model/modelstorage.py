@@ -84,7 +84,9 @@ class ModelStorage(Model):
                     'import_data': RPC(readonly=False),
                     'archive': RPC(readonly=False, instantiate=0),
                     'restore': RPC(readonly=False, instantiate=0),
-                    'search_count_list': RPC(readonly=False)
+                    'search_count_list': RPC(readonly=False),
+                    'bulk_editable_fields': RPC(
+                        readonly=True, result=lambda r: tuple(r)),
                     })
         cls._constraints = []
 
@@ -97,6 +99,11 @@ class ModelStorage(Model):
             with Transaction().set_context(**context):
                 counts.append(cls.search_count(domain))
         return counts
+
+    @classmethod
+    def bulk_editable_fields(cls):
+        "Return field names of bulk editable fields"
+        return set()
 
     @staticmethod
     def default_create_uid():
