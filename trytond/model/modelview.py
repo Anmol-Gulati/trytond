@@ -611,6 +611,14 @@ class ModelView(Model):
                 if element.get(attr):
                     fields_attrs.setdefault(element.get(attr), {})
 
+        if element.tag == 'tree' and element.get('create_action'):
+            action_id = element.get('create_action')
+            try:
+                action_id = int(action_id)
+            except ValueError:
+                action_id = ModelData.get_id(*action_id.split('.'))
+            element.attrib['create_action'] = str(action_id)
+
         for field in element:
             fields_attrs = cls.__view_look_dom(field, type,
                 fields_width=fields_width, fields_attrs=fields_attrs)
