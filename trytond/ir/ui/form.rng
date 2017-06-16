@@ -41,6 +41,16 @@
       <attribute name="cursor"/>
     </optional>
   </define>
+  <define name="attlist.form" combine="interleave">
+    <optional>
+      <attribute name="tab-view-ids"/>
+    </optional>
+  </define>
+  <define name="attlist.form" combine="interleave">
+    <optional>
+      <attribute name="tab-names"/>
+    </optional>
+  </define>
   <define name="label">
     <element name="label">
       <ref name="attlist.label"/>

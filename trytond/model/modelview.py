@@ -504,6 +504,16 @@ class ModelView(Model):
                 element.attrib['view_ids'] = ','.join(map(str, view_ids))
             return view_ids
 
+        def set_tab_view_ids(element):
+            view_ids = []
+            if element.get('tab-view-ids'):
+                for view_id in element.get('tab-view-ids').split(','):
+                    try:
+                        view_ids.append(int(view_id))
+                    except ValueError:
+                        view_ids.append(ModelData.get_id(*view_id.split('.')))
+                element.attrib['tab-view-ids'] = ','.join(map(str, view_ids))
+
         def set_quick_add_view_id(element):
             "Fulfil customization for x2m quick add form"
             if element.get('quick_add_view_id'):
@@ -618,6 +628,9 @@ class ModelView(Model):
             except ValueError:
                 action_id = ModelData.get_id(*action_id.split('.'))
             element.attrib['create-action'] = str(action_id)
+
+        if element.tag == 'form':
+            set_tab_view_ids(element)
 
         for field in element:
             fields_attrs = cls.__view_look_dom(field, type,
