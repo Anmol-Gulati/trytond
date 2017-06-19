@@ -19,6 +19,11 @@
   </define>
   <define name="attlist.tree" combine="interleave">
     <optional>
+      <attribute name="create-action" a:defaultValue="Unknown"/>
+    </optional>
+  </define>
+  <define name="attlist.tree" combine="interleave">
+    <optional>
       <attribute name="on_write"/>
     </optional>
   </define>
