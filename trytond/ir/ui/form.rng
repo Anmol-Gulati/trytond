@@ -38,11 +38,6 @@
   </define>
   <define name="attlist.form" combine="interleave">
     <optional>
-      <attribute name="create_action" a:defaultValue="Unknown"/>
-    </optional>
-  </define>
-  <define name="attlist.form" combine="interleave">
-    <optional>
       <attribute name="cursor"/>
     </optional>
   </define>
