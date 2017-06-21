@@ -241,6 +241,8 @@ class Model(WarningErrorMixin, URLMixin, PoolBase):
                         and isinstance(cls._fields[field]._field,
                             fields.Many2One))):
                 res[field]['searchable'] = False
+            elif (isinstance(cls._fields[field], fields.JSON)):
+                res[field]['searchable'] = False
             else:
                 res[field]['searchable'] = True
 
