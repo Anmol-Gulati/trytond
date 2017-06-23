@@ -8,6 +8,10 @@ import datetime
 import time
 import sys
 import threading
+try:
+    import simplejson as json
+except ImportError:
+    import json
 
 _FIX_ROWCOUNT = False
 try:
@@ -426,3 +430,5 @@ def convert_interval(value):
 _interval_max = datetime.timedelta.max.total_seconds()
 _interval_min = datetime.timedelta.min.total_seconds()
 sqlite.register_converter('INTERVAL', convert_interval)
+sqlite.register_converter('JSON', lambda val: val and json.loads(val))
+sqlite.register_adapter(dict, lambda val: json.dumps(val))
