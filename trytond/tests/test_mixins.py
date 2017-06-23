@@ -3,7 +3,6 @@
 # this repository contains the full copyright notices and license terms.
 
 import unittest
-import urllib
 
 from trytond.tests.test_tryton import install_module, with_transaction
 from trytond.transaction import Transaction
@@ -23,15 +22,14 @@ class UrlTestCase(unittest.TestCase):
         "Test model URLs"
         pool = Pool()
         UrlObject = pool.get('test.urlobject')
-        db_name = Transaction().database.name
 
         self.assertEqual(UrlObject.__url__,
-            'tryton://%s/%s/model/test.urlobject' % (
-                HOSTNAME, urllib.quote(db_name)))
+            'https://%s/client/#/model/test.urlobject' % (
+                HOSTNAME, ))
 
         self.assertEqual(UrlObject(1).__url__,
-            'tryton://%s/%s/model/test.urlobject/1' % (
-                HOSTNAME, urllib.quote(db_name)))
+            'https://%s/client/#/model/test.urlobject/1' % (
+                HOSTNAME, ))
 
     @with_transaction()
     def testWizardURL(self):
@@ -41,8 +39,8 @@ class UrlTestCase(unittest.TestCase):
         db_name = Transaction().database.name
 
         self.assertEqual(UrlWizard.__url__,
-            'tryton://%s/%s/wizard/test.test_wizard' % (
-                HOSTNAME, urllib.quote(db_name)))
+            'https://%s/client/#/wizard/test.test_wizard' % (
+                HOSTNAME, ))
 
 
 def suite():

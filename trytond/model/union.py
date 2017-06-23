@@ -52,7 +52,8 @@ class UnionMixin:
         columns = [cls.union_shard(table.id, model).as_('id')]
         for name in sorted(cls._fields.keys()):
             field = cls._fields[name]
-            if name == 'id' or hasattr(field, 'set'):
+            if (name == 'id' or hasattr(field, 'set')
+                    or isinstance(field, fields.JSON)):
                 continue
             column = cls.union_column(name, field, table, Model)
             columns.append(Cast(column, field.sql_type().base).as_(name))
