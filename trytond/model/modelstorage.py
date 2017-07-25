@@ -330,6 +330,8 @@ class ModelStorage(Model):
                         data[field_name] = [('add', data[field_name])]
             if 'id' in data:
                 del data['id']
+            if 'metadata' in data:
+                del data['metadata']
             return data
 
         # Reset MPTT field to the default value
