@@ -322,6 +322,11 @@
   </define>
   <define name="attlist.field" combine="interleave">
     <optional>
+      <attribute name="data-url"/>
+    </optional>
+  </define>
+  <define name="attlist.field" combine="interleave">
+    <optional>
       <attribute name="editor-mode"/>
     </optional>
   </define>
