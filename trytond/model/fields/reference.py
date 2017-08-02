@@ -137,4 +137,4 @@ class Reference(Field):
         return (Cast(Substring(column,
                     Position(',', column) + Literal(1)),
                 Model.id.sql_type().base).in_(query)
-            & column.ilike(target + ',%'))
+            & column.like(target + ',%'))
