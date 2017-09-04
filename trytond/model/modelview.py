@@ -349,6 +349,23 @@ class ModelView(Model):
         cls._fields_view_get_cache.set(key, result)
         return result
 
+    def get_create_actions(cls):
+        """Return list of create actions with default values.
+
+            example from party.party create:
+                [
+                    {
+                        'name': 'Create Sale Order',  # Display name
+                        'res_model': 'sale.sale',  # Model to create new record
+                        'defaults': {  # Default values for res_model
+                            'party': Eval('active_id'),
+                        },
+                    },
+                    ...
+                ]
+        """
+        return []
+
     @classmethod
     def view_toolbar_get(cls):
         """
@@ -370,6 +387,7 @@ class ModelView(Model):
             'print': prints,
             'action': actions,
             'relate': relates,
+            'create': cls.get_create_actions(),
             }
         cls._view_toolbar_get_cache.set(key, result)
         return result
