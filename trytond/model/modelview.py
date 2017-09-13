@@ -349,6 +349,7 @@ class ModelView(Model):
         cls._fields_view_get_cache.set(key, result)
         return result
 
+    @classmethod
     def get_create_actions(cls):
         """Return list of create actions with default values.
 
