@@ -155,7 +155,8 @@ class ModelStorage(Model):
                 if isinstance(_field, fields.One2Many) or \
                         isinstance(_field, fields.Many2Many):
                     continue
-                if isinstance(_field, fields.Many2One):
+                if isinstance(_field, fields.Many2One) and \
+                        not isinstance(fvalue, int):
                     _model = Pool().get(_field.model_name)
                     try:
                         fvalue, = _model.search(
