@@ -87,8 +87,102 @@ class ModelStorage(Model):
                     'search_count_list': RPC(readonly=False),
                     'bulk_editable_fields': RPC(
                         readonly=True, result=lambda r: tuple(r)),
+                    'import_o2m_field_from': RPC(readonly=False, instantiate=0),
                     })
         cls._constraints = []
+
+    def import_o2m_field_from(self, field_name, data):
+        """Create one 2 many records from provided data
+        :param field_name: O2M field name
+        :param data: Data to create relative records
+        :type field_name: char
+        :type data: list List of dictionary
+        """
+        field = self._fields.get(field_name)
+        if not isinstance(field, fields.One2Many):
+            self.raise_user_error("Field '%s' on '%s' is not of One to Many" % (
+                field_name, self.__name__
+            ))
+        Model = Pool().get(field.model_name)
+
+        # TODO: Pick values from domain
+        model_fields = Model._fields
+
+        def _trigger_on_change(record, fieldnames):
+            """Internal method to handle on_change of fields
+            """
+            # Trigger on_change on changed fields
+            record.on_change(fieldnames)
+
+            fieldnames = set(fieldnames)
+            to_change = set()
+            later = set()
+            for fname, definition in model_fields.iteritems():
+                on_change_with = definition.on_change_with
+                if not on_change_with:
+                    continue
+                if not fieldnames & set(on_change_with):
+                    continue
+                if to_change & set(on_change_with):
+                    # dependent on_change should be triggered later
+                    later.add(fname)
+                    continue
+                to_change.add(fname)
+
+            for fname in to_change:
+                value = getattr(record, 'on_change_with_%s' % fname)()
+                setattr(record, fname, value)
+            for fname in later:
+                value = getattr(record, 'on_change_with_%s' % fname)()
+                setattr(record, fname, value)
+
+        # Fetch default on all fields
+        default_data = Model.default_get(model_fields.keys())
+        default_data[field.field] = self
+        # TODO: Handle domain fields in default
+
+        records = []
+        for values in data:
+            values.pop(field.field, None)
+            record = Model(**default_data)
+            _trigger_on_change(record, default_data.keys())
+
+            updated_values = {}
+            for fname, fvalue in values.iteritems():
+                _field = model_fields.get(fname)
+                if not _field:
+                    continue
+                if isinstance(_field, fields.One2Many) or \
+                        isinstance(_field, fields.Many2Many):
+                    continue
+                if isinstance(_field, fields.Many2One):
+                    _model = Pool().get(_field.model_name)
+                    try:
+                        fvalue, = _model.search(
+                            [('rec_name', 'ilike', str(fvalue))], limit=2)
+                    except ValueError:
+                        self.raise_user_error(
+                            "Invalid value '%s' for field '%s'",
+                            (fvalue, fname)
+                        )
+                setattr(record, fname, fvalue)
+                updated_values[fname] = fvalue
+            _trigger_on_change(record, updated_values.keys())
+            # XXX: Override field values provided in data, as somefields may be
+            # changed by onchange.
+            for fname, fvalue in updated_values.iteritems():
+                if fvalue:
+                    setattr(record, fname, fvalue)
+            records.append(record)
+
+        # XXX: Save main record to make sure domain is validated
+        field_value = getattr(self, field_name, ())
+        field_value += tuple(records)
+        setattr(self, field_name, field_value)
+
+        # trigger onchange on current field
+        self.on_change([field_name])
+        self.save()
 
     @classmethod
     def search_count_list(cls, domains):
