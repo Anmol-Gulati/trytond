@@ -868,7 +868,9 @@ class ActionActWindow(ActionMixin, ModelSQL, ModelView):
             for view in self.act_window_views]
 
     def get_domains(self, name):
-        return [(domain.name, domain.domain or '[]', domain.order)
+        return [(
+            domain.name, domain.domain or '[]', domain.order, domain.context
+        )
             for domain in self.act_window_domains]
 
     @classmethod
@@ -957,6 +959,7 @@ class ActionActWindowDomain(ModelSQL, ModelView):
         select=True, required=True, ondelete='CASCADE')
     active = fields.Boolean('Active')
     order = fields.Char('Order Value')
+    context = fields.Char('Context Value')
 
     @classmethod
     def __setup__(cls):
