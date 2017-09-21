@@ -15,4 +15,6 @@ this repository contains the full copyright notices and license terms. -->
     <newline/>
     <label name="domain"/>
     <field name="domain" colspan="5"/>
+    <label name="context"/>
+    <field name="context" colspan="5"/>
 </form>
