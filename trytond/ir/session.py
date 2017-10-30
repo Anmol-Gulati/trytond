@@ -9,6 +9,7 @@ import datetime
 
 from trytond.model import ModelSQL, fields
 from trytond.config import config
+from trytond.transaction import Transaction
 from .. import backend
 
 __all__ = [
@@ -66,6 +67,11 @@ class Session(ModelSQL):
                 ('key', '=', session),
                 ])
         cls.write(sessions, {})
+
+    @classmethod
+    def create(cls, vlist):
+        cls.delete(cls.search([('create_uid', '=', Transaction().user)]))
+        return super(Session, cls).create(vlist)
 
 
 class SessionWizard(ModelSQL):
