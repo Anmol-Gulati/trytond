@@ -638,10 +638,7 @@ class ModelStorage(Model):
         '''
         Yield tuples (record, name, icon) for text
         '''
-        # TODO improve search clause
-        for record in cls.search([
-                    ('rec_name', 'ilike', '%%%s%%' % text),
-                    ]):
+        for record in cls.full_text_search(text, [], limit=20):
             yield record, record.rec_name, None
 
     @classmethod
