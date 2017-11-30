@@ -666,20 +666,36 @@ class ModelStorage(Model):
         """
         Archive records
         """
+        Activity = Pool().get('ir.activity')
+
         if not hasattr(cls, 'active'):
             raise cls.raise_user_error('This record can not be archived.')
 
         cls.write(records, {'active': False})
+
+        Activity.create([{
+            'type': 'archived',
+            'target_record': '%s,%s' % (record.__name__, record.id),
+            'object_record': '%s,%s' % (record.__name__, record.id),
+        } for record in records])
 
     @classmethod
     def restore(cls, records):
         """
         Restore records
         """
+        Activity = Pool().get('ir.activity')
+
         if not hasattr(cls, 'active'):
             raise cls.raise_user_error('This record can not be restored.')
 
         cls.write(records, {'active': True})
+
+        Activity.create([{
+            'type': 'restored',
+            'target_record': '%s,%s' % (record.__name__, record.id),
+            'object_record': '%s,%s' % (record.__name__, record.id),
+        } for record in records])
 
     @staticmethod
     def __export_row(record, fields_names):
