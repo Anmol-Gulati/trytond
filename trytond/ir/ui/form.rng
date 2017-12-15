@@ -915,6 +915,7 @@
           <ref name="page"/>
           <ref name="child"/>
           <ref name="card"/>
+          <ref name="render-html"/>
           <ref name="container"/>
         </choice>
       </zeroOrMore>
