@@ -16,6 +16,7 @@
           <ref name="hpaned"/>
           <ref name="vpaned"/>
           <ref name="card"/>
+          <ref name="renderhtml"/>
           <ref name="container"/>
         </choice>
       </zeroOrMore>
@@ -936,6 +937,17 @@
       </attribute>
     </optional>
   </define>
+  <define name="renderhtml">
+    <element name="renderhtml">
+      <ref name="attlist.renderhtml"/>
+      <text/>
+    </element>
+  </define>
+  <define name="attlist.renderhtml" combine="interleave">
+    <optional>
+      <attribute name="help"/>
+    </optional>
+  </define>
   <define name="card">
     <element name="card">
       <ref name="attlist.card"/>
@@ -952,6 +964,7 @@
           <ref name="hpaned"/>
           <ref name="vpaned"/>
           <ref name="card"/>
+          <ref name="renderhtml"/>
           <ref name="metric"/>
           <ref name="chart"/>
         </choice>
