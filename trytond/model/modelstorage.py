@@ -1197,8 +1197,22 @@ class ModelStorage(Model):
                             domain,
                             ])
                     if sub_relations != set(finds):
-                        cls.raise_user_error('domain_validation_record',
-                            error_args=cls._get_error_args(field.name))
+                        error_recs = list(sub_relations - set(finds))
+                        error_args = cls._get_error_args(field.name)
+                        if len(error_recs) == 1:
+                            error_args['value'] = error_recs[0].rec_name
+                            cls.raise_user_error(
+                                "'%(value)s' is not a valid value for '%(model)s's' field '%(field)s'.",
+                                error_args=error_args
+                            )
+                        else:
+                            cls.raise_user_error(
+                                "The following values on %(model)s's  %(field)s field are invalid. \n" +
+                                "\n".join([
+                                    rel.rec_name for rel in error_recs
+                                ]),
+                                error_args=error_args
+                            )
 
         field_names = set(field_names or [])
         function_fields = {name for name, field in cls._fields.iteritems()
