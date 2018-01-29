@@ -58,6 +58,9 @@ class Model(ModelSQL, ModelView):
         depends=['module'])
     module = fields.Char('Module',
        help="Module in which this model is defined", readonly=True)
+    singular_name = fields.Char('Singular Name', readonly=True, select=True)
+    plural_name = fields.Char('Plural Name', readonly=True, select=True)
+    create_keyword = fields.Char('Create Keyword', readonly=True, select=True)
     global_search_p = fields.Boolean('Global Search')
     fields = fields.One2Many('ir.model.field', 'model', 'Fields',
        required=True)

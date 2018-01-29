@@ -232,6 +232,7 @@ class ModelView(Model):
             return result
         result = {'model': cls.__name__}
         pool = Pool()
+        Model = pool.get('ir.model')
         View = pool.get('ir.ui.view')
 
         view = None
@@ -345,6 +346,34 @@ class ModelView(Model):
                 result['field_childs'])
         result['arch'] = xarch
         result['fields'] = xfields
+
+        # Update Sigular Name and Create Keyword for many2one fields
+        # based on the field Model
+        for field_data in xfields.values():
+            if field_data['type'] == 'many2one':
+                try:
+                    model, = Model.search(
+                        ['model', '=', field_data['relation']]
+                    )
+                    field_data['create_keyword'] = model.create_keyword
+                    field_data['singular_name'] = model.singular_name
+                    field_data['plural_name'] = model.plural_name
+
+                except ValueError:
+                    field_data['create_keyword'] = "Add New"
+                    field_data['singular_name'] = cls.__doc__
+                    field_data['plural_name'] = cls.__doc__
+
+        # Update Sigular Name, Plural Name and Create Keyword from Model
+        try:
+            model, = Model.search(['model', '=', cls.__name__])
+            result['singular_name'] = model.singular_name
+            result['plural_name'] = model.plural_name
+            result['create_keyword'] = model.create_keyword
+        except ValueError:
+            result['singular_name'] = cls.__doc__
+            result['plural_name'] = cls.__doc__
+            result['create_keyword'] = "Add New"
 
         cls._fields_view_get_cache.set(key, result)
         return result
