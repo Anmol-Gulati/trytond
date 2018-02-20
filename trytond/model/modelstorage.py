@@ -74,6 +74,7 @@ class ModelStorage(Model):
                     'delete': RPC(readonly=False, instantiate=0),
                     'copy': RPC(readonly=False, instantiate=0,
                         result=lambda r: map(int, r)),
+                    'duplicate': RPC(readonly=False, instantiate=0),
                     'search': RPC(result=lambda r: map(int, r)),
                     'full_text_search': RPC(result=lambda r: map(int, r)),
                     'search_count': RPC(),
@@ -376,6 +377,27 @@ class ModelStorage(Model):
                     triggered.append(record)
             if triggered:
                 Trigger.trigger_action(triggered, trigger)
+
+    @classmethod
+    def duplicate(cls, records, default=None):
+        '''
+        Duplicate the records and return actions
+        '''
+        copied_records = cls.copy(records, default)
+        action = {}
+        data = {}
+        action['res_model'] = cls.__name__
+        action['type'] = "ir.action.act_window"
+        action['domains'] = []
+        data['external'] = True
+        data['res_id'] = map(int, copied_records)
+
+        if len(copied_records) > 1:
+            action['views'] = [[None, 'tree']]
+        else:
+            action['views'] = [[None, 'form']]
+
+        return action, data
 
     @classmethod
     def copy(cls, records, default=None):
