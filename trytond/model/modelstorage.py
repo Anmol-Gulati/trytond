@@ -538,7 +538,7 @@ class ModelStorage(Model):
     @classmethod
     def full_text_search_domain(cls, text, domain):
         """Downstream modules can override this method to redefine the domain"""
-        if text is not None:
+        if text:
             for name in text.split(' '):
                 domain.append(('rec_name', 'ilike', '%%%s%%' % name))
         return domain
