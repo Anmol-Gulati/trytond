@@ -63,7 +63,12 @@ class Function(Field):
         raise AttributeError
 
     def convert_domain(self, domain, tables, Model):
+        table, _ = tables[None]
         name, operator, value = domain[:3]
+        assert name == self.name
+        method = getattr(Model, 'domain_%s' % name, None)
+        if method:
+            return method(domain, tables)
         if not self.searcher:
             Model.raise_user_error('search_function_missing', name)
         return getattr(Model, self.searcher)(name, domain)
