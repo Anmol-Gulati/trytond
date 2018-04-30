@@ -28,10 +28,11 @@ class Numeric(Float):
     def __init__(self, string='', digits=None, help='', required=False,
             readonly=False, domain=None, states=None, select=False,
             on_change=None, on_change_with=None, depends=None,
-            context=None, loading='eager', currency_symbol=None):
+            context=None, loading='eager', currency_symbol=None,
+            uom_symbol=None):
         '''
-        :param currency_symbol: a list of two integers defining the total
-            of digits and the number of decimals of the float.
+        :param currency_symbol: a valid PYSON object which resolves to str
+        :param uom_symbol: a valid PYSON object which resolves to str
         '''
         super(Numeric, self).__init__(string=string, digits=digits, help=help,
             required=required, readonly=readonly, domain=domain, states=states,
@@ -39,6 +40,8 @@ class Numeric(Float):
             depends=depends, context=context, loading=loading)
         self.__currency_symbol = None
         self.currency_symbol = currency_symbol
+        self.__uom_symbol = None
+        self.uom_symbol = uom_symbol
 
     __init__.__doc__ += Float.__init__.__doc__
 
@@ -50,6 +53,16 @@ class Numeric(Float):
         self.__currency_symbol = value
 
     currency_symbol = property(_get_currency_symbol, _set_currency_symbol)
+
+    def _get_uom_symbol(self):
+        return self.__uom_symbol
+
+    def _set_uom_symbol(self, value):
+        if value:
+            assert isinstance(value, PYSON), 'value must be a PYSON'
+        self.__uom_symbol = value
+
+    uom_symbol = property(_get_uom_symbol, _set_uom_symbol)
 
     @staticmethod
     def sql_format(value):
