@@ -314,6 +314,7 @@ class TableHandler(TableHandlerInterface):
 
         cursor = Transaction().connection.cursor()
         name = self.table_name + '_' + column_name + '_fkey'
+        name = name[:63]
         cursor.execute('SELECT 1 '
             'FROM information_schema.key_column_usage '
             'WHERE table_name = %s AND table_schema = %s '
