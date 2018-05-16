@@ -677,6 +677,14 @@ class ModelView(Model):
                 action_id = ModelData.get_id(*action_id.split('.'))
             element.attrib['create-action'] = str(action_id)
 
+        if element.tag == 'tree' and element.get('create-menu'):
+            menu_id = element.get('create-menu')
+            try:
+                menu_id = int(menu_id)
+            except ValueError:
+                menu_id = ModelData.get_id(*menu_id.split('.'))
+            element.attrib['create-menu'] = str(menu_id)
+
         if element.tag == 'form':
             set_tab_view_ids(element)
 
