@@ -24,6 +24,11 @@
   </define>
   <define name="attlist.tree" combine="interleave">
     <optional>
+      <attribute name="create-menu" a:defaultValue="Unknown"/>
+    </optional>
+  </define>
+  <define name="attlist.tree" combine="interleave">
+    <optional>
       <attribute name="on_write"/>
     </optional>
   </define>
