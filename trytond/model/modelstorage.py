@@ -380,24 +380,11 @@ class ModelStorage(Model):
 
     @classmethod
     def duplicate(cls, records, default=None):
-        '''
-        Duplicate the records and return actions
-        '''
-        copied_records = cls.copy(records, default)
-        action = {}
-        data = {}
-        action['res_model'] = cls.__name__
-        action['type'] = "ir.action.act_window"
-        action['domains'] = []
-        data['external'] = True
-        data['res_id'] = map(int, copied_records)
+        '''Duplicate records
 
-        if len(copied_records) > 1:
-            action['views'] = [[None, 'tree']]
-        else:
-            action['views'] = [[None, 'form']]
-
-        return action, data
+        Downstream modules can customize this implementation
+        '''
+        return cls.copy(records, default)
 
     @classmethod
     def copy(cls, records, default=None):
