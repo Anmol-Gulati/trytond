@@ -35,8 +35,6 @@ __all__ = ['Database', 'DatabaseIntegrityError', 'DatabaseOperationalError']
 
 logger = logging.getLogger(__name__)
 
-RE_VERSION = re.compile(r'\S+ (\d+)\.(\d+)')
-
 os.environ['PGTZ'] = os.environ.get('TZ', '')
 
 
@@ -132,10 +130,11 @@ class Database(DatabaseInterface):
     def get_version(self, connection):
         if self.name not in self._version_cache:
             cursor = connection.cursor()
-            cursor.execute('SELECT version()')
+            cursor.execute('SHOW server_version_num')
             version, = cursor.fetchone()
-            self._version_cache[self.name] = tuple(map(int,
-                RE_VERSION.search(version).groups()))
+            major, rest = divmod(int(version), 10000)
+            minor, patch = divmod(rest, 100)
+            self._version_cache[self.name] = (major, minor, patch)
         return self._version_cache[self.name]
 
     @staticmethod

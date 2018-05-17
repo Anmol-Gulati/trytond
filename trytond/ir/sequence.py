@@ -159,13 +159,34 @@ class Sequence(ModelSQL, ModelView):
     def get_number_next(self, name):
         if self.type != 'incremental':
             return
-        cursor = Transaction().connection.cursor()
+        transaction = Transaction()
+        connection = transaction.connection
+        database = transaction.database
+        version = database.get_version(connection)
+        flavor = database.flavor
+        cursor = connection.cursor()
         sql_name = self._sql_sequence_name
         if sql_sequence and not self._strict:
-            cursor.execute('SELECT '
-                'CASE WHEN NOT is_called THEN last_value '
-                    'ELSE last_value + increment_by '
-                'END FROM "%s"' % sql_name)
+            if version >= (10, 0):
+                cursor.execute(
+                    'SELECT increment_by '
+                    'FROM pg_sequences '
+                    'WHERE sequencename=%s '
+                    % flavor.param,
+                    (sql_name,))
+                increment, = cursor.fetchone()
+                cursor.execute(
+                    'SELECT CASE WHEN NOT is_called THEN last_value '
+                                'ELSE last_value + %s '
+                            'END '
+                    'FROM "%s"' % (flavor.param, sql_name),
+                    (increment,))
+            else:
+                cursor.execute(
+                    'SELECT CASE WHEN NOT is_called THEN last_value '
+                                'ELSE last_value + increment_by '
+                           'END '
+                    'FROM "%s"' % sql_name)
             return cursor.fetchone()[0]
         else:
             return self.number_next_internal
