@@ -34,7 +34,7 @@ class Char(FieldTranslate):
             warnings.warn('autocomplete argument is deprecated, use the '
                 'depends decorator', DeprecationWarning, stacklevel=2)
             self.autocomplete |= set(autocomplete)
-        self.translate = translate
+        self.translate = False
         self.__size = None
         self.size = size
     __init__.__doc__ += Field.__init__.__doc__
