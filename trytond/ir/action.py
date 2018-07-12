@@ -868,10 +868,13 @@ class ActionActWindow(ActionMixin, ModelSQL, ModelView):
             for view in self.act_window_views]
 
     def get_domains(self, name):
-        return [(
-            domain.name, domain.domain or '[]', domain.order, domain.context
-        )
-            for domain in self.act_window_domains]
+        return [{
+            'id': domain.id,
+            'name': domain.name,
+            'domain': domain.domain or '[]',
+            'order': domain.order,
+            'context': domain.context,
+        } for domain in self.act_window_domains]
 
     @classmethod
     def get_pyson(cls, windows, name):
