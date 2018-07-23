@@ -8,13 +8,15 @@ this repository contains the full copyright notices and license terms. -->
     <field name="sequence"/>
     <label name="active"/>
     <field name="active"/>
-    <label name="order"/>
-    <field name="order" colspan="5"/>
     <label name="act_window"/>
     <field name="act_window"/>
+    <label name="view"/>
+    <field name="view" colspan="5"/>
     <newline/>
     <label name="domain"/>
     <field name="domain" colspan="5"/>
     <label name="context"/>
     <field name="context" colspan="5"/>
+    <label name="order"/>
+    <field name="order" colspan="5"/>
 </form>

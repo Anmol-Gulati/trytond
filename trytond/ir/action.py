@@ -874,6 +874,7 @@ class ActionActWindow(ActionMixin, ModelSQL, ModelView):
             'domain': domain.domain or '[]',
             'order': domain.order,
             'context': domain.context,
+            'view': domain.view and domain.view.id,
         } for domain in self.act_window_domains]
 
     @classmethod
@@ -963,6 +964,7 @@ class ActionActWindowDomain(ModelSQL, ModelView):
     active = fields.Boolean('Active')
     order = fields.Char('Order Value')
     context = fields.Char('Context Value')
+    view = fields.Many2One('ir.ui.view', 'View')
 
     @classmethod
     def __setup__(cls):
