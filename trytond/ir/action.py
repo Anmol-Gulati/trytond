@@ -964,7 +964,7 @@ class ActionActWindowDomain(ModelSQL, ModelView):
     active = fields.Boolean('Active')
     order = fields.Char('Order Value')
     context = fields.Char('Context Value')
-    view = fields.Many2One('ir.ui.view', 'View')
+    view = fields.Many2One('ir.ui.view', 'View', ondelete='SET NULL')
 
     @classmethod
     def __setup__(cls):
