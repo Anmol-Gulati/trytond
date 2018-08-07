@@ -875,6 +875,7 @@ class ActionActWindow(ActionMixin, ModelSQL, ModelView):
             'order': domain.order,
             'context': domain.context,
             'view': domain.view and domain.view.id,
+            'is_custom': domain.create_uid and domain.create_uid.id != 0,
         } for domain in self.act_window_domains]
 
     @classmethod
