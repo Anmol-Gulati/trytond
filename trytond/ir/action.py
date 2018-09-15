@@ -886,6 +886,7 @@ class ActionActWindow(ActionMixin, ModelSQL, ModelView):
             'view': (domain.custom_view and domain.custom_view.id) or
             (domain.view and domain.view.id),
             'system_defined': domain.system_defined,
+            'create_uid': domain.create_uid.id,
             'public': domain.public,
         } for domain in act_window_domains]
 
@@ -1103,6 +1104,11 @@ class ActionActWindowDomain(ModelSQL, ModelView):
     @classmethod
     @ModelView.button
     def make_public(cls, domains):
+        for domain in domains:
+            if domain.create_uid.id != Transaction().user:
+                cls.raise_user_error(
+                    "You cannot make other user's view public"
+                )
         cls.write(domains, {'public': True})
 
     @classmethod
@@ -1112,6 +1118,10 @@ class ActionActWindowDomain(ModelSQL, ModelView):
             if domain.system_defined:
                 cls.raise_user_error(
                     "You cannot make system defined view private"
+                )
+            if domain.create_uid.id != Transaction().user:
+                cls.raise_user_error(
+                    "You cannot make other user's view private"
                 )
         cls.write(domains, {'public': False})
 
