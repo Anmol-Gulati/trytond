@@ -12,6 +12,10 @@ this repository contains the full copyright notices and license terms. -->
     <field name="act_window"/>
     <label name="view"/>
     <field name="view" colspan="5"/>
+    <label name="custom_view"/>
+    <field name="custom_view" colspan="5"/>
+    <label name="public"/>
+    <field name="public" colspan="5"/>
     <newline/>
     <label name="domain"/>
     <field name="domain" colspan="5"/>
@@ -19,4 +23,6 @@ this repository contains the full copyright notices and license terms. -->
     <field name="context" colspan="5"/>
     <label name="order"/>
     <field name="order" colspan="5"/>
+    <button name="make_public" string="Make Public"/>
+    <button name="make_private" string="Make Private"/>
 </form>
