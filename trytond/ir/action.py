@@ -10,9 +10,10 @@ from sql import Table
 from sql.aggregate import Count
 
 from ..model import ModelView, ModelStorage, ModelSQL, fields
+from ..model.modelview import _inherit_apply
 from ..tools import file_open
 from .. import backend
-from ..pyson import PYSONDecoder, PYSON, Eval
+from ..pyson import PYSONDecoder, PYSON
 from ..transaction import Transaction
 from ..pool import Pool
 from ..cache import Cache
@@ -994,14 +995,6 @@ class ActionActWindowDomain(ModelSQL, ModelView):
                 'invalid_domain': ('Invalid domain or search criteria '
                     '"%(domain)s" on action "%(action)s".'),
                 })
-        cls._buttons.update({
-            'make_public': {
-                'invisible': Eval('public')
-            },
-            'make_private': {
-                'invisible': ~Eval('public')
-            }
-        })
         cls.__rpc__.update({
             "create_view": RPC(readonly=False),
             "update_view": RPC(readonly=False),
@@ -1067,13 +1060,29 @@ class ActionActWindowDomain(ModelSQL, ModelView):
         if not len(fields):
             cls.raise_user_error("Really! atleast add one column")
 
+        View = Pool().get('ir.ui.view')
         Model = Pool().get(model)
         if view_id:
-            root = etree.fromstring(
-                Model.fields_view_get(view_id, 'tree')['arch']
-            )
+            view = View(view_id)
+            views = View.search([
+                'OR', [
+                    ('inherit', '=', view_id),
+                    ('model', '=', model),
+                ], [
+                    ('id', '=', view_id),
+                    ('inherit', '!=', None),
+                ],
+            ])
+            views.sort(key=lambda x: cls._modules_list.index(x.module or None))
+            parser = etree.XMLParser(remove_comments=True)
+            root = etree.fromstring(view.arch, parser=parser)
+            for view in views:
+                if not view.arch or not view.arch.strip():
+                    continue
+                tree_inherit = etree.fromstring(view.arch, parser=parser)
+                root = _inherit_apply(root, tree_inherit)
         else:
-            root = etree.fromstring('<tree></tree>')
+            root = etree.fromstring('<tree string="%s"></tree>' % (string, ))
 
         all_fields = Model.fields_get().keys()
         for field in fields:
@@ -1083,14 +1092,14 @@ class ActionActWindowDomain(ModelSQL, ModelView):
                 )
 
         create_action = root.xpath('//tree')[0].get('create-action')
-        arch = "<tree string='%s'>" % string
+        arch = "<tree string='%s'>\n" % string
         if create_action:
-            arch = "<tree string='%s' create-action='%s'>" % (
+            arch = "<tree string='%s' create-action='%s'>\n" % (
                 string, create_action
             )
 
         for field in fields:
-            arch += "<field name='%s'/>" % field
+            arch += "<field name='%s'/>\n" % field
 
         # Adding bulk action button
         for element in root.findall('./bulk-action-button'):
@@ -1100,30 +1109,6 @@ class ActionActWindowDomain(ModelSQL, ModelView):
         arch += "</tree>"
 
         return arch
-
-    @classmethod
-    @ModelView.button
-    def make_public(cls, domains):
-        for domain in domains:
-            if domain.create_uid.id != Transaction().user:
-                cls.raise_user_error(
-                    "You cannot make other user's view public"
-                )
-        cls.write(domains, {'public': True})
-
-    @classmethod
-    @ModelView.button
-    def make_private(cls, domains):
-        for domain in domains:
-            if domain.system_defined:
-                cls.raise_user_error(
-                    "You cannot make system defined view private"
-                )
-            if domain.create_uid.id != Transaction().user:
-                cls.raise_user_error(
-                    "You cannot make other user's view private"
-                )
-        cls.write(domains, {'public': False})
 
     @classmethod
     def create_view(
@@ -1166,19 +1151,28 @@ class ActionActWindowDomain(ModelSQL, ModelView):
         action_domain.public = public
         action_domain.custom_view = custom_view
         action_domain.sequence = 10
-        action_domain.save()
+        with Transaction().set_context(_check_access=False):
+            action_domain.save()
+
+        # Finally clear cache
         ModelView._fields_view_get_cache.clear()
         ActionKeyword._get_keyword_cache.clear()
         return action_domain.id
 
     @classmethod
-    def update_view(cls, action_domain_id, name=None, domain=None, fields=None):
+    def update_view(
+            cls, action_domain_id, name=None, domain=None, fields=None,
+            public=None, view_id=None
+    ):
         """Updates a domain window view with given name and domain. Requires
         domain window id always.
             action_domain_id: id of ir.action.act_window.domain model id
             name: name to update on domain window
             domain: domain to be updated
             fields: field names to be updated on view
+            public: make view public
+            view_id: Existing view id in case trying to update system defined
+                view columns.
         """
         pool = Pool()
         ActWindowDomain = pool.get('ir.action.act_window.domain')
@@ -1191,13 +1185,17 @@ class ActionActWindowDomain(ModelSQL, ModelView):
         except ValueError:
             cls.raise_user_error("Action domain id is invalid")
 
-        if action_domain.system_defined and (name or domain):
+        if action_domain.system_defined and (
+                name or domain or public is not None
+        ):
             # You cannot update name and domain on system defined view.
             cls.raise_user_error("System defined views cannot be edited")
         if name:
             action_domain.name = name
         if domain:
             action_domain.domain = domain
+        if public is not None:
+            action_domain.public = public
         if fields:
             custom_view = action_domain.custom_view
             if custom_view is None:
@@ -1205,14 +1203,18 @@ class ActionActWindowDomain(ModelSQL, ModelView):
                 custom_view.model = action_domain.act_window.res_model
                 custom_view.type = 'tree'
                 action_domain.custom_view = custom_view
-            custom_view.data = cls._get_tree_view_arch(
+            custom_view.arch = cls._get_tree_view_arch(
                 model=action_domain.act_window.res_model,
                 string=name or action_domain.name,
                 fields=fields,
-                view_id=action_domain.view and action_domain.view.id
+                view_id=action_domain.view and action_domain.view.id or view_id
             )
-            custom_view.save()
-        action_domain.save()
+            with Transaction().set_context(_check_access=False):
+                custom_view.save()
+        with Transaction().set_context(_check_access=False):
+            action_domain.save()
+
+        # Finally clear cache
         ModelView._fields_view_get_cache.clear()
         ActionKeyword._get_keyword_cache.clear()
 
@@ -1232,7 +1234,11 @@ class ActionActWindowDomain(ModelSQL, ModelView):
             cls.raise_user_error("Action domain id is invalid")
         if action_domain.system_defined:
             cls.raise_user_error("System defined views cannot be deleted")
-        ActWindowDomain.delete([action_domain])
+
+        with Transaction().set_context(_check_access=False):
+            ActWindowDomain.delete([action_domain])
+
+        # Finally clear cache
         ModelView._fields_view_get_cache.clear()
         ActionKeyword._get_keyword_cache.clear()
 
