@@ -1060,6 +1060,9 @@ class ActionActWindowDomain(ModelSQL, ModelView):
         if not len(fields):
             cls.raise_user_error("Really! atleast add one column")
 
+        # Replace all double quots as they will conflict with xml arch
+        string = string.replace('"', '')
+
         View = Pool().get('ir.ui.view')
         Model = Pool().get(model)
         if view_id:
@@ -1092,14 +1095,14 @@ class ActionActWindowDomain(ModelSQL, ModelView):
                 )
 
         create_action = root.xpath('//tree')[0].get('create-action')
-        arch = "<tree string='%s'>\n" % string
+        arch = '<tree string="%s">\n' % string
         if create_action:
-            arch = "<tree string='%s' create-action='%s'>\n" % (
+            arch = '<tree string="%s" create-action="%s">\n' % (
                 string, create_action
             )
 
         for field in fields:
-            arch += "<field name='%s'/>\n" % field
+            arch += '<field name="%s"/>\n' % field
 
         # Adding bulk action button
         for element in root.findall('./bulk-action-button'):
