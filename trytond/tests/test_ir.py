@@ -35,9 +35,9 @@ class IrTestCase(ModuleTestCase):
         self.assertTrue(domain_window.public)
         self.assertEqual(
             domain_window.custom_view.arch,
-            "<tree string='All'>\n" +
-            "<field name='name'/>\n" +
-            "</tree>"
+            '<tree string="All">\n' +
+            '<field name="name"/>\n' +
+            '</tree>'
         )
         self.assertTrue(act_window.domains)
 
