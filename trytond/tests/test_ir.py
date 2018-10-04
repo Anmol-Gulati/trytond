@@ -69,9 +69,9 @@ class IrTestCase(ModuleTestCase):
         self.assertTrue(domain_window.public)
         self.assertEqual(
             domain_window.custom_view.arch,
-            "<tree string='Out of Sync'>\n" +
-            "<field name='module'/>\n" +
-            "</tree>"
+            '<tree string="Out of Sync">\n' +
+            '<field name="module"/>\n' +
+            '</tree>'
         )
 
     @with_transaction()
