@@ -250,6 +250,9 @@ class ModelField(ModelSQL, ModelView):
         depends=['module'])
     module = fields.Char('Module',
        help="Module in which this field is defined")
+    selection_values = fields.Function(
+        fields.JSON("Selection Values"), "get_selection_values"
+    )
 
     @classmethod
     def __setup__(cls):
@@ -323,6 +326,32 @@ class ModelField(ModelSQL, ModelView):
                 cursor.execute(*ir_model_field.delete(
                         where=ir_model_field.id ==
                         model_fields[field_name]['id']))
+
+    @classmethod
+    def get_selection_values(cls, records, name):
+        res = dict.fromkeys(map(int, records), None)
+        for record in records:
+            try:
+                Model = Pool().get(record.model.model)
+            except KeyError:
+                # Model does not exist anymore, that means field data is
+                # not synced with codebase.
+                continue
+            try:
+                selection = getattr(getattr(Model, record.name), 'selection')
+            except AttributeError:
+                # Possisblity of field being there in database but not in
+                # codebase is there.
+                continue
+            if isinstance(selection, basestring):
+                try:
+                    selection = getattr(Model, selection)()
+                except TypeError:
+                    # Selection is an instance method here and cannot be
+                    # called.
+                    continue
+            res[record.id] = selection
+        return res
 
     @staticmethod
     def default_name():
