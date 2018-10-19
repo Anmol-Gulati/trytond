@@ -966,6 +966,7 @@
           <ref name="card"/>
           <ref name="renderhtml"/>
           <ref name="metric"/>
+          <ref name="creditcard"/>
           <ref name="chart"/>
         </choice>
       </zeroOrMore>
@@ -1100,6 +1101,39 @@
       <attribute name="data-currency-symbol" />
     </optional>
   </define>
+
+  <define name="creditcard">
+    <element name="creditcard">
+      <ref name="attlist.creditcard"/>
+    </element>
+  </define>
+  <define name="attlist.creditcard" combine="interleave">
+    <optional>
+      <attribute name="name" />
+    </optional>
+  </define>
+  <define name="attlist.creditcard" combine="interleave">
+    <optional>
+      <attribute name="string" />
+    </optional>
+  </define>
+  <define name="attlist.creditcard" combine="interleave">
+    <optional>
+      <attribute name="colspan" a:defaultValue="1"/>
+    </optional>
+  </define>
+  <define name="attlist.creditcard" combine="interleave">
+    <optional>
+      <attribute name="col" a:defaultValue="1"/>
+    </optional>
+  </define>
+  <!-- XXX: Fix this to adapt "data-*" attribute name -->
+  <define name="attlist.creditcard" combine="interleave">
+    <optional>
+      <attribute name="data-gateway-info" />
+    </optional>
+  </define>
+
   <define name="chart">
     <element name="chart">
       <ref name="attlist.chart"/>
