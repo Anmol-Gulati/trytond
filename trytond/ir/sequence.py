@@ -380,7 +380,7 @@ class SequenceStrict(Sequence):
     "Sequence Strict"
     __name__ = 'ir.sequence.strict'
     _table = 'ir_sequence_strict'  # Needed to override Sequence._table
-    _strict = True
+    _strict = False
 
     @classmethod
     def get_id(cls, clause):
