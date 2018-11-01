@@ -182,6 +182,7 @@
           <value>code-editor</value>
           <value>monthStart</value>
           <value>monthEnd</value>
+          <value>radio</value>
         </choice>
       </attribute>
     </optional>
