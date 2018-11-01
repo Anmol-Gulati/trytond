@@ -25,7 +25,7 @@ if sys.version_info < (3,):
         result = []
         g = generate_tokens(StringIO(s.decode('utf-8')).readline)   # tokenize the string
         for toknum, tokval, _, _, _ in g:
-            if toknum == NUMBER:  # replace NUMBER tokens
+            if toknum == NUMBER and '.' in tokval:  # replace NUMBER tokens
                 result.extend([
                     (NAME, 'Decimal'),
                     (OP, '('),
@@ -61,7 +61,7 @@ else:
         result = []
         g = tokenize(BytesIO(s.encode('utf-8')).readline)  # tokenize the string
         for toknum, tokval, _, _, _ in g:
-            if toknum == NUMBER:  # replace NUMBER tokens
+            if toknum == NUMBER and '.' in tokval:  # replace NUMBER tokens
                 result.extend([
                     (NAME, 'Decimal'),
                     (OP, '('),
