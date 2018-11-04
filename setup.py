@@ -38,7 +38,7 @@ else:
     pg_require = ['psycopg2 >= 2.5']
 
 setup(name=name,
-    version=version,
+    version=version + 'pre1',
     description='Tryton server',
     long_description=read('README'),
     author='Tryton',
