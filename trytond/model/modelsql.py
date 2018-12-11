@@ -19,7 +19,7 @@ from trytond.const import OPERATORS
 from trytond.transaction import Transaction
 from trytond.pool import Pool
 from trytond.cache import LRUDict
-from trytond.exceptions import ConcurrencyException
+from trytond.exceptions import ConcurrencyException, FieldNameError
 from trytond.rpc import RPC
 from trytond.config import config
 
@@ -642,7 +642,10 @@ class ModelSQL(ModelStorage):
                 fields_related.setdefault(field, [])
                 fields_related[field].append(field_related)
             else:
-                field = cls._fields[field_name]
+                try:
+                    field = cls._fields[field_name]
+                except KeyError:
+                    raise FieldNameError(field_name)
             if hasattr(field, 'datetime_field') and field.datetime_field:
                 datetime_fields.append(field.datetime_field)
 

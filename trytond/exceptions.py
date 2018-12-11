@@ -33,3 +33,11 @@ class ConcurrencyException(TrytonException):
             message)
         self.message = message
         self.code = 4
+
+
+class FieldNameError(UserError):
+    def __init__(self, field_name):
+        super(FieldNameError, self).__init__(
+            field_name,
+            "Field does not exist or you do not have permission to access."
+        )
