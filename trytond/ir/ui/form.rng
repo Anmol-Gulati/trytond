@@ -949,6 +949,16 @@
       <attribute name="help"/>
     </optional>
   </define>
+  <define name="attlist.renderhtml" combine="interleave">
+    <optional>
+      <attribute name="colspan" a:defaultValue="1"/>
+    </optional>
+  </define>
+  <define name="attlist.renderhtml" combine="interleave">
+    <optional>
+      <attribute name="col" a:defaultValue="1"/>
+    </optional>
+  </define>
   <define name="card">
     <element name="card">
       <ref name="attlist.card"/>
