@@ -28,4 +28,8 @@ class Activity(ModelSQL, ModelView):
         """
         Model = Pool().get('ir.model')
 
-        return map(lambda m: (m.model, m.name), Model.search([]))
+        if not hasattr(cls, '_models_cache'):
+            cls._models_cache = map(
+                lambda m: (m.model, m.name), Model.search([]))
+
+        return cls._models_cache
