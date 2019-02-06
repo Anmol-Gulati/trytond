@@ -4,7 +4,7 @@ import os
 import datetime
 import tempfile
 import warnings
-import tempfile
+
 from fulfil_s3_temp_storage import put_file
 import subprocess
 warnings.simplefilter("ignore")

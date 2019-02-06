@@ -6,5 +6,5 @@ dependencies:
     - pip install tox
 test:
   override:
-    - case $CIRCLE_NODE_INDEX in 0) tox -e "py27-sqlite" ;; 1) tox -e "py27-postgresql" ;; esac:
+    - case $CIRCLE_NODE_INDEX in 0) tox -e "py27-postgresql" ;; esac:
         parallel: true

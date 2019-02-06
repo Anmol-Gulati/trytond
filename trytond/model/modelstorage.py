@@ -1,11 +1,12 @@
 # This file is part of Tryton.  The COPYRIGHT file at the top level of
 # this repository contains the full copyright notices and license terms.
 
+import os
 import datetime
 import time
 import csv
 import warnings
-
+import tempfile
 from decimal import Decimal
 from itertools import islice, ifilter, chain, izip
 from functools import reduce
@@ -24,6 +25,8 @@ from trytond.pool import Pool
 from trytond.cache import LRUDict, LRUDictTransaction, freeze
 from trytond import backend
 from trytond.rpc import RPC
+from fulfil_s3_temp_storage import put_file
+
 from .modelview import ModelView
 from .descriptors import dualmethod
 
@@ -784,6 +787,25 @@ class ModelStorage(Model):
         data = []
         for record in records:
             data += cls.__export_row(record, fields_names)
+
+        if Transaction().context.get('return_link'):
+            with tempfile.NamedTemporaryFile(
+                    suffix='.csv', delete=False) as data_file:
+                fields_names = [name for _f in fields_names for name in _f]
+                writer = csv.writer(data_file)
+                writer.writerow(fields_names)
+                writer.writerows(data)
+
+            try:
+                s3_url = put_file(data_file.name)
+            except Exception:
+                # TODO: Handle S3 Errors
+                pass
+            else:
+                return s3_url
+            finally:
+                os.remove(data_file.name)
+
         return data
 
     @classmethod
