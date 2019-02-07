@@ -789,22 +789,14 @@ class ModelStorage(Model):
             data += cls.__export_row(record, fields_names)
 
         if Transaction().context.get('return_link'):
-            with tempfile.NamedTemporaryFile(
-                    suffix='.csv', delete=False) as data_file:
+            with tempfile.NamedTemporaryFile(suffix='.csv') as data_file:
                 fields_names = [name for _f in fields_names for name in _f]
                 writer = csv.writer(data_file)
                 writer.writerow(fields_names)
                 writer.writerows(data)
 
-            try:
-                s3_url = put_file(data_file.name)
-            except Exception:
-                # TODO: Handle S3 Errors
-                pass
-            else:
-                return s3_url
-            finally:
-                os.remove(data_file.name)
+                data_file.seek(0)
+                return put_file(data_file.name)
 
         return data
 
