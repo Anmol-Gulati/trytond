@@ -102,6 +102,7 @@ setup(name=name,
         'wrapt',
         'blinker',
         'fulfil-s3-temp-storage',
+        'unicodecsv',
         ],
     extras_require={
         'PostgreSQL': pg_require,

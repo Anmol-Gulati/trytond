@@ -4,7 +4,7 @@
 import os
 import datetime
 import time
-import csv
+import unicodecsv as csv
 import warnings
 import tempfile
 from decimal import Decimal
