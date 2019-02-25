@@ -790,7 +790,7 @@ class ModelStorage(Model):
 
         if Transaction().context.get('return_link'):
             with tempfile.NamedTemporaryFile(suffix='.csv') as data_file:
-                fields_names = [name for _f in fields_names for name in _f]
+                fields_names = ['/'.join(fields) for fields in fields_names]
                 writer = csv.writer(data_file)
                 writer.writerow(fields_names)
                 writer.writerows(data)
