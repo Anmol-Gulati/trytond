@@ -28,11 +28,14 @@ class UserWarning(TrytonException):
 
 class ConcurrencyException(TrytonException):
 
-    def __init__(self, message):
+    def __init__(self, message, record=None, write_date=None, write_uid=None):
         super(ConcurrencyException, self).__init__('ConcurrencyException',
-            message)
+            (message, record, write_date, write_uid))
         self.message = message
         self.code = 4
+        self.record = record
+        self.write_date = write_date
+        self.write_uid = write_uid
 
 
 class FieldNameError(UserError):
