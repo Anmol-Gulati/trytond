@@ -466,10 +466,17 @@ class ModelSQL(ModelStorage):
                             Coalesce(table.write_date, table.create_date)
                             ).cast(sql_type) > timestamp))
             if where:
-                cursor.execute(*table.select(table.id, where=where))
-                if cursor.fetchone():
+                cursor.execute(*table.select(
+                    table.id, table.write_date, table.write_uid, where=where))
+                row = cursor.fetchone()
+                if row:
+                    rec_id, write_date, write_uid = row
                     raise ConcurrencyException(
-                        'Records were modified in the meanwhile')
+                        'Records were modified in the meanwhile',
+                        record='{},{}'.format(cls.__name__, rec_id),
+                        write_date=write_date,
+                        write_uid=write_uid
+                    )
 
     @classmethod
     def create(cls, vlist):
