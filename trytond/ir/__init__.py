@@ -22,6 +22,7 @@ from .cache import *
 from .date import *
 from .trigger import *
 from .session import *
+from . import queue
 from .kvstore import *
 
 
@@ -87,6 +88,7 @@ def register():
         TriggerLog,
         Session,
         SessionWizard,
+        queue.Queue,
         KeyValueStore,
         module='ir', type_='model')
     Pool.register(

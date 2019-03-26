@@ -152,6 +152,10 @@ class DatabaseInterface(object):
         '''
         raise NotImplementedError
 
+    def lock_id(self, id, timeout=None):
+        """Return SQL function to lock resource"""
+        raise NotImplementedError
+
     def has_constraint(self):
         '''
         Return True if database handle constraint.
@@ -171,4 +175,8 @@ class DatabaseInterface(object):
 
     def has_multirow_insert(self):
         'Return True if database supports multirow insert'
+        return False
+
+    def has_channel(self):
+        "Return True if database supports LISTEN/NOTIFY channel"
         return False

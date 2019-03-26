@@ -27,6 +27,7 @@ from psycopg2 import IntegrityError as DatabaseIntegrityError
 from psycopg2 import OperationalError as DatabaseOperationalError
 
 from sql import Flavor
+from sql.functions import Function
 
 from trytond.backend.database import DatabaseInterface
 from trytond.config import config, parse_uri
@@ -50,12 +51,21 @@ def replace_special_values(s, **mapping):
     return s
 
 
+class AdvisoryLock(Function):
+    _function = 'pg_advisory_xact_lock'
+
+
+class TryAdvisoryLock(Function):
+    _function = 'pg_try_advisory_xact_lock'
+
+
 class Database(DatabaseInterface):
 
     _databases = {}
     _connpool = None
     _list_cache = None
     _list_cache_timestamp = None
+    _has_returning = None
     _version_cache = {}
     flavor = Flavor(ilike=True)
 
@@ -352,6 +362,26 @@ class Database(DatabaseInterface):
             finally:
                 self.put_connection(connection)
         return self._search_path
+
+    def has_returning(self):
+        if self._has_returning is None:
+            connection = self.get_connection()
+            try:
+                # RETURNING clause is available since PostgreSQL 8.2
+                self._has_returning = self.get_version(connection) >= (8, 2)
+            finally:
+                self.put_connection(connection)
+        return self._has_returning
+
+    def lock_id(self, id, timeout=None):
+        if not timeout:
+            return TryAdvisoryLock(id)
+        else:
+            return AdvisoryLock(id)
+
+    def has_channel(self):
+        return True
+
 
 register_type(UNICODE)
 if PYDATE:
