@@ -5,6 +5,7 @@ from sql import Query, Expression
 
 from ... import backend
 from .field import Field, SQLType
+from trytond.exceptions import UserValueError
 
 
 class Date(Field):
@@ -20,8 +21,14 @@ class Date(Field):
         if value is None:
             return None
         if isinstance(value, basestring):
-            year, month, day = map(int, value.split("-", 2))
-            return datetime.date(year, month, day)
+            try:
+                year, month, day = map(int, value.split("-", 2))
+            except ValueError:
+                raise UserValueError('Invalid date formatting. Expected yyyy-mm-dd.')
+            try:
+                return datetime.date(year, month, day)
+            except ValueError as error:
+                raise UserValueError(error)
 
         assert(isinstance(value, datetime.date))
         # Allow datetime with min time for XML-RPC

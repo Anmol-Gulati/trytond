@@ -15,6 +15,14 @@ class UserError(TrytonException):
         self.code = 1
 
 
+class UserValueError(UserError):
+    '''
+    Raised when there is a data error or a validation fails for api calls. 
+    Makes handling easy over API dispatcher
+    '''
+    pass
+
+
 class UserWarning(TrytonException):
 
     def __init__(self, name, message, description=''):
