@@ -19,7 +19,7 @@ from trytond.const import OPERATORS
 from trytond.transaction import Transaction
 from trytond.pool import Pool
 from trytond.cache import LRUDict
-from trytond.exceptions import ConcurrencyException, FieldNameError
+from trytond.exceptions import ConcurrencyException, FieldNameError, UserValueError
 from trytond.rpc import RPC
 from trytond.config import config
 
@@ -929,7 +929,14 @@ class ModelSQL(ModelStorage):
             update_values = [transaction.user, CurrentTimestamp()]
             store_translation = Transaction().language == Config.get_language()
             for fname, value in values.iteritems():
-                field = cls._fields[fname]
+                try:
+                    field = cls._fields[fname]
+                except KeyError:
+                    raise UserValueError(
+                            'Field "{}" is not present in model "{}"'. format(
+                            fname, cls.__name__
+                        )
+                    )
                 if not hasattr(field, 'set'):
                     if (not getattr(field, 'translate', False)
                             or store_translation):
