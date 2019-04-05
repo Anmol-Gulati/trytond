@@ -89,25 +89,27 @@ class Queue(ModelSQL):
                     ),
                 where=candidates.scheduled_at >= CurrentTimestamp()))
 
-        task_id, seconds = None, None
+        task_id, seconds, queue_name = None, None, None
         if database.has_returning():
             query = queue.update([queue.dequeued_at], [CurrentTimestamp()],
                 where=queue.id == selected.select(selected.id),
                 with_=[candidates, selected, next_timeout],
                 returning=[
-                    queue.id, next_timeout.select(next_timeout.seconds)])
+                    queue.id, next_timeout.select(next_timeout.seconds),
+                    queue.name
+                ])
             cursor.execute(*query)
             row = cursor.fetchone()
             if row:
-                task_id, seconds = row
+                task_id, seconds, queue_name = row
         else:
-            query = queue.select(queue.id,
+            query = queue.select(queue.id, queue.name,
                 where=queue.id == selected.select(selected.id),
                 with_=[candidates, selected])
             cursor.execute(*query)
             row = cursor.fetchone()
             if row:
-                task_id, = row
+                task_id, queue_name = row
                 query = queue.update([queue.dequeued_at], [CurrentTimestamp()],
                     where=queue.id == task_id)
                 cursor.execute(*query)
@@ -119,7 +121,7 @@ class Queue(ModelSQL):
 
         if not task_id and database.has_channel():
             cursor.execute('LISTEN "%s"', (cls.__name__,))
-        return task_id, seconds
+        return task_id, seconds, queue_name
 
     def run(self):
         transaction = Transaction()
