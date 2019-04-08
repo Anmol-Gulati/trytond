@@ -9,8 +9,14 @@ import traceback
 from werkzeug.wrappers import Response
 from werkzeug.routing import Map, Rule
 from werkzeug.exceptions import abort, HTTPException, InternalServerError
-from werkzeug.contrib.fixers import ProxyFix
-from werkzeug.wsgi import SharedDataMiddleware
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+def NumProxyFix(app, num_proxies):
+    return ProxyFix(app,
+        x_for=num_proxies, x_proto=num_proxies, x_host=num_proxies,
+        x_port=num_proxies, x_prefix=num_proxies)
+
+from werkzeug.middleware.shared_data import SharedDataMiddleware
 
 import wrapt
 
@@ -150,6 +156,6 @@ if config.get('web', 'root'):
     app.wsgi_app = SharedDataMiddlewareIndex(app.wsgi_app, static_files)
 num_proxies = config.getint('web', 'num_proxies')
 if num_proxies:
-    app.wsgi_app = ProxyFix(app.wsgi_app, num_proxies=num_proxies)
+    app.wsgi_app = NumProxyFix(app.wsgi_app, num_proxies)
 import trytond.protocols.dispatcher
 import trytond.bus
