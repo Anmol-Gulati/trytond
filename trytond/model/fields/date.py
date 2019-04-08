@@ -24,18 +24,29 @@ class Date(Field):
             try:
                 year, month, day = map(int, value.split("-", 2))
             except ValueError:
-                raise UserValueError('Invalid date formatting. Expected yyyy-mm-dd.')
+                raise UserValueError(
+                    'Invalid date formatting. Expected yyyy-mm-dd.'
+                )
             try:
                 return datetime.date(year, month, day)
             except ValueError as error:
                 raise UserValueError(error)
 
-        assert(isinstance(value, datetime.date))
-        # Allow datetime with min time for XML-RPC
-        # datetime must be tested separately because datetime is a
-        # subclass of date
-        assert(not isinstance(value, datetime.datetime)
-            or value.time() == datetime.time())
+        try:
+            # Allow datetime with min time for XML-RPC
+            # datetime must be tested separately because datetime is a
+            # subclass of date
+            assert(
+                isinstance(value, datetime.date) and (
+                    not isinstance(value, datetime.datetime) or (
+                        value.time() == datetime.time()
+                    )
+                )
+            )
+        except AssertionError:
+            raise UserValueError(
+                'Invalid value for datetime. It should use fulfil encoding.'
+            )
         return value
 
     def sql_type(self):
