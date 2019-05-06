@@ -1753,6 +1753,15 @@ class ModelStorage(Model):
                 record._init_values = None
             records = latter
 
+    def to_dict(self):
+        "Return JSON serializable dictionary"
+        return {
+            'id': self.id,
+            'rec_name': self.rec_name,
+            'created_at': self.create_date,
+            'updated_at': self.write_date,
+        }
+
 
 class EvalEnvironment(dict):
 
