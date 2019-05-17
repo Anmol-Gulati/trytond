@@ -12,7 +12,7 @@ class JSONText(BinaryOperator):
 
 class JSON(Field):
     'Define json field.'
-    _type = 'text'
+    _type = 'json'
 
     def sql_type(self):
         return SQLType('JSON', 'JSON')
