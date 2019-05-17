@@ -44,9 +44,9 @@ class ModelStorage(Model):
     """
 
     create_uid = fields.Many2One('res.user', 'Create User', readonly=True)
-    create_date = fields.Timestamp('Create Date', readonly=True)
+    create_date = fields.Timestamp('Created At (Timestamp)', readonly=True)
     write_uid = fields.Many2One('res.user', 'Write User', readonly=True)
-    write_date = fields.Timestamp('Write Date', readonly=True)
+    write_date = fields.Timestamp('Updated At (Timestamp)', readonly=True)
     rec_name = fields.Function(fields.Char('Name'), 'get_rec_name',
             searcher='search_rec_name')
     rec_blurb = fields.Function(fields.JSON('Blurb'), 'get_rec_blurb',
