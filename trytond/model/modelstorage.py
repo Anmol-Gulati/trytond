@@ -92,6 +92,7 @@ class ModelStorage(Model):
                     'bulk_editable_fields': RPC(
                         readonly=True, result=lambda r: tuple(r)),
                     'import_o2m_field_from': RPC(readonly=False, instantiate=0),
+                    'serialize': RPC(instantiate=0, readonly=True),
                     })
         cls._constraints = []
 
@@ -1761,6 +1762,13 @@ class ModelStorage(Model):
             'created_at': self.create_date,
             'updated_at': self.write_date,
         }
+
+    @classmethod
+    def serialize(cls, records):
+        "RPC to return serialized data for the records"
+        return [
+            record.to_dict() for record in records
+        ]
 
 
 class EvalEnvironment(dict):
