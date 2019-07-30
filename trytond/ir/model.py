@@ -463,6 +463,7 @@ class ModelAccess(ModelSQL, ModelView):
     perm_write = fields.Boolean('Write Access')
     perm_create = fields.Boolean('Create Access')
     perm_delete = fields.Boolean('Delete Access')
+    perm_export = fields.Boolean('Export Access')
     description = fields.Text('Description')
     _get_access_cache = Cache('ir_model_access.get_access', context=False)
 
@@ -474,6 +475,7 @@ class ModelAccess(ModelSQL, ModelView):
             'write': 'You can not write in this document! (%s)',
             'create': 'You can not create this kind of document! (%s)',
             'delete': 'You can not delete this document! (%s)',
+            'export': 'You can not export this kind of document! (%s)',
             })
         cls.__rpc__.update({
                 'get_access': RPC(),
@@ -510,6 +512,10 @@ class ModelAccess(ModelSQL, ModelView):
     def default_perm_delete():
         return False
 
+    @staticmethod
+    def default_perm_export():
+        return False
+
     @classmethod
     def get_access(cls, models):
         'Return access for models'
@@ -535,7 +541,13 @@ class ModelAccess(ModelSQL, ModelView):
         else:
             return access
 
-        default = {'read': True, 'write': True, 'create': True, 'delete': True}
+        default = {
+            'read': True,
+            'write': True,
+            'create': True,
+            'delete': True,
+            'export': True,
+        }
         access = dict((m, default) for m in models)
         cursor.execute(*model_access.join(ir_model, 'LEFT',
                 condition=model_access.model == ir_model.id
@@ -547,12 +559,13 @@ class ModelAccess(ModelSQL, ModelView):
                 Max(Case((model_access.perm_write == True, 1), else_=0)),
                 Max(Case((model_access.perm_create == True, 1), else_=0)),
                 Max(Case((model_access.perm_delete == True, 1), else_=0)),
+                Max(Case((model_access.perm_export == True, 1), else_=0)),
                 where=ir_model.model.in_(models)
                 & ((user_group.user == user) | (model_access.group == Null)),
                 group_by=ir_model.model))
         access.update(dict(
-                (m, {'read': r, 'write': w, 'create': c, 'delete': d})
-                for m, r, w, c, d in cursor.fetchall()))
+            (m, {'read': r, 'write': w, 'create': c, 'delete': d, 'export': e})
+                for m, r, w, c, d, e in cursor.fetchall()))
         for model, maccess in access.iteritems():
             cls._get_access_cache.set((user, model), maccess)
         return access
@@ -560,7 +573,7 @@ class ModelAccess(ModelSQL, ModelView):
     @classmethod
     def check(cls, model_name, mode='read', raise_exception=True):
         'Check access for model_name and mode'
-        assert mode in ['read', 'write', 'create', 'delete'], \
+        assert mode in ['read', 'write', 'create', 'delete', 'export'], \
             'Invalid access mode for security'
         if ((Transaction().user == 0)
                 or (raise_exception
