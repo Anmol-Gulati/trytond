@@ -17,7 +17,8 @@ def read(fname):
 
 def get_version():
     init = read(os.path.join('trytond', '__init__.py'))
-    return re.search('__version__ = "([0-9.]*)"', init).group(1)
+    return re.search('__version__ = "([0-9\w.]*)"', init).group(1)
+
 
 version = get_version()
 major_version, minor_version, _ = version.split('.', 2)
