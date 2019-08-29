@@ -422,7 +422,9 @@ class ModelStorage(Model):
                     data[field_name] = default[field_name]
                 elif (isinstance(cls._fields[field_name], fields.Function)
                         and not isinstance(cls._fields[field_name],
-                            fields.Property)):
+                            fields.Property)
+                        and not isinstance(
+                            cls._fields[field_name], fields.MultiValue)):
                     del data[field_name]
                 elif ftype in ('many2one', 'one2one'):
                     try:
@@ -452,7 +454,8 @@ class ModelStorage(Model):
                 mptt.add(field.right)
         fields_names = [n for n, f in cls._fields.iteritems()
             if (not isinstance(f, fields.Function)
-                or isinstance(f, fields.Property))
+                or isinstance(f, fields.Property)
+                or isinstance(f, fields.MultiValue))
             and n not in mptt]
         ids = map(int, records)
         datas = cls.read(ids, fields_names=fields_names)
@@ -1199,13 +1202,35 @@ class ModelStorage(Model):
                     env['active_id'] = record.id
                     domain = freeze(PYSONDecoder(env).decode(pyson_domain))
                     domains[domain].append(record)
+
+                # Select strategy depending if it is closer to one domain per
+                # record or one domain for all records
+                if len(domains) > len(records) * 0.5:
+                    # Do not use IN_MAX to let spaces for the pyson domain
+                    in_max = Transaction().database.IN_MAX
+                    count = in_max / 10
+                    new_domains = {}
+                    for sub_domains in grouped_slice(domains.keys(), count):
+                        grouped_domain = ['OR']
+                        grouped_records = []
+                        for d in sub_domains:
+                            sub_records = domains[d]
+                            grouped_records.extend(sub_records)
+                            relations = relation_domain(field, sub_records)
+                            if len(relations) > in_max:
+                                break
+                            grouped_domain.append(
+                                [('id', 'in', [r.id for r in relations]), d])
+                        new_domains[freeze(grouped_domain)] = grouped_records
+                    else:
+                        domains = new_domains
             else:
                 domains[freeze(field.domain)].extend(records)
 
             for domain, sub_records in domains.iteritems():
                 validate_relation_domain(field, sub_records, Relation, domain)
 
-        def validate_relation_domain(field, records, Relation, domain):
+        def relation_domain(field, records):
             if field._type in ('many2one', 'one2many', 'many2many', 'one2one'):
                 relations = set()
                 for record in records:
@@ -1217,13 +1242,18 @@ class ModelStorage(Model):
             else:
                 # Cache alignment is not a problem
                 relations = set(records)
+            return relations
+
+        def validate_relation_domain(field, records, Relation, domain):
+            relations = relation_domain(field, records)
             if relations:
                 for sub_relations in grouped_slice(relations):
                     sub_relations = set(sub_relations)
-                    finds = Relation.search(['AND',
-                            [('id', 'in', [r.id for r in sub_relations])],
-                            domain,
-                            ])
+                    with Transaction().set_user(0):
+                        finds = Relation.search(['AND',
+                                [('id', 'in', [r.id for r in sub_relations])],
+                                domain,
+                                ])
                     if sub_relations != set(finds):
                         error_recs = list(sub_relations - set(finds))
                         error_args = cls._get_error_args(field.name)
