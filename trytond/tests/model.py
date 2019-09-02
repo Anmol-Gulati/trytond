@@ -1,10 +1,11 @@
 # This file is part of Tryton.  The COPYRIGHT file at the top level of
 # this repository contains the full copyright notices and license terms.
 from trytond.model import ModelSingleton, ModelSQL, UnionMixin, fields
+from trytond.pyson import Eval
 
 __all__ = [
     'Singleton', 'URLObject',
-    'ModelStorage',
+    'ModelStorage', 'ModelStoragePYSONDomain',
     'ModelSQLRequiredField', 'ModelSQLTimestamp', 'ModelSQLFieldSet',
     'Model4Union1', 'Model4Union2', 'Model4Union3', 'Model4Union4',
     'Union', 'UnionUnion',
@@ -32,6 +33,18 @@ class ModelStorage(ModelSQL):
     'Model stored'
     __name__ = 'test.modelstorage'
     name = fields.Char('Name')
+
+
+class ModelStoragePYSONDomain(ModelSQL):
+    "Model stored with PYSON domain"
+    __name__ = 'test.modelstorage.pyson_domain'
+    constraint = fields.Char("Constraint")
+    value = fields.Char(
+        "Value",
+        domain=[
+            ('value', '=', Eval('constraint')),
+            ],
+        depends=['constraint'])
 
 
 class ModelSQLRequiredField(ModelSQL):

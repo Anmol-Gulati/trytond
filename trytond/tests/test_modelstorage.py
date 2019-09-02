@@ -3,6 +3,7 @@
 
 import unittest
 
+from trytond.error import UserError
 from trytond.pool import Pool
 from trytond.tests.test_tryton import install_module, with_transaction
 
@@ -33,6 +34,42 @@ class ModelStorageTestCase(unittest.TestCase):
         rows = ModelStorage.search_read([], order=[('name', 'DESC')])
         self.assertTrue(
             all(x['name'] >= y['name'] for x, y in zip(rows, rows[1:])))
+
+    @with_transaction()
+    def test_pyson_domain_same(self):
+        "Test same pyson domain validation"
+        pool = Pool()
+        Model = pool.get('test.modelstorage.pyson_domain')
+
+        Model.create([{'constraint': 'foo', 'value': 'foo'}] * 10)
+
+        with self.assertRaises(UserError):
+            Model.create([{'constraint': 'foo', 'value': 'bar'}] * 10)
+
+    @with_transaction()
+    def test_pyson_domain_unique(self):
+        "Test unique pyson domain validation"
+        pool = Pool()
+        Model = pool.get('test.modelstorage.pyson_domain')
+
+        Model.create(
+            [{'constraint': str(i), 'value': str(i)} for i in range(10)])
+
+        with self.assertRaises(UserError):
+            Model.create(
+                [{'constraint': str(i), 'value': str(i + 1)}
+                    for i in range(10)])
+
+    @with_transaction()
+    def test_pyson_domain_single(self):
+        "Test pyson domain validation for 1 record"
+        pool = Pool()
+        Model = pool.get('test.modelstorage.pyson_domain')
+
+        Model.create([{'constraint': 'foo', 'value': 'foo'}])
+
+        with self.assertRaises(UserError):
+            Model.create([{'constraint': 'foo', 'value': 'bar'}])
 
 
 def suite():
