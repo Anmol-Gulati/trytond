@@ -20,6 +20,7 @@ class Activity(ModelSQL, ModelView):
         'Object Record', selection='get_models', select=True)
     target_record = fields.Reference(
         'Target Record', selection='get_models', select=True)
+    actor = fields.Function(fields.JSON('Actor'), getter='get_actor')
 
     @classmethod
     def get_models(cls):
@@ -33,3 +34,10 @@ class Activity(ModelSQL, ModelView):
                 lambda m: (m.model, m.name), Model.search([]))
 
         return cls._models_cache
+
+    def get_actor(self, name):
+        return {
+            'id': self.create_uid.id,
+            'display_string': self.create_uid.name,
+            'email': self.create_uid.email
+        }
