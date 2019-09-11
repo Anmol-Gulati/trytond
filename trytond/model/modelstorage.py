@@ -63,6 +63,7 @@ class ModelStorage(Model):
     attachments = fields.One2Many(
         'ir.attachment', 'resource', 'Attachments', loading='lazy'
     )
+    messages = fields.Function(fields.JSON("Messages"), getter='_get_messages')
 
     @classmethod
     def __setup__(cls):
@@ -648,6 +649,38 @@ class ModelStorage(Model):
             ('is_public', '=', name == 'public_notes'),
             ('resource', '=', '%s,%s' % (self.__name__, self.id))
         ]))
+
+    def get_messages(self):
+        Activity = Pool().get('ir.activity')
+        res = []
+
+        if not getattr(self, 'active', True):
+            record_reference_field_name = "{},{}".format(self.__name__, self.id)
+            try:
+                last_archival_record, = Activity.search(
+                    [
+                        ("type", "=", "archived"),
+                        ("target_record", "=", record_reference_field_name)
+                    ],
+                    order=[('create_date', 'DESC')],
+                    limit=1
+                )
+                res.append({
+                    "title": "This record has been archived.",
+                    "type": "info",
+                    "description": "This record was archived by {user} on {date}.".format(
+                        user=last_archival_record.actor["display_string"],
+                        date=last_archival_record.create_date
+                        )
+                    })
+            except ValueError:
+                pass
+
+        return res
+
+    @classmethod
+    def _get_messages(cls, records, name):
+        return {record.id: record.get_messages() for record in records}
 
     @classmethod
     def search_global(cls, text):

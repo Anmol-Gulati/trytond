@@ -71,6 +71,17 @@ class ModelStorageTestCase(unittest.TestCase):
         with self.assertRaises(UserError):
             Model.create([{'constraint': 'foo', 'value': 'bar'}])
 
+    @with_transaction()
+    def test_messages_field_returns_as_expected(self):
+        """Test if the get messages returns messages properly after archival"""
+        pool = Pool()
+        Menu = pool.get('ir.ui.menu')
+        menu_obj, = Menu.search([], limit=1)
+        assert len(menu_obj.messages) == 0
+        Menu.archive([menu_obj])
+        assert menu_obj.messages[0]["title"] == "This record has been archived."
+        assert menu_obj.messages[0]["type"] == "info"
+
 
 def suite():
     return unittest.TestLoader().loadTestsFromTestCase(ModelStorageTestCase)
