@@ -118,10 +118,10 @@ class Function(Field):
 
 class MultiValue(Function):
 
-    def __init__(self, field, loading='lazy'):
+    def __init__(self, field, loading='lazy', searcher=None):
         super(MultiValue, self).__init__(
             field, '_multivalue_getter', setter='_multivalue_setter',
-            loading=loading)
+            loading=loading, searcher=searcher)
 
     def __copy__(self):
         return MultiValue(copy.copy(self._field), loading=self.loading)
