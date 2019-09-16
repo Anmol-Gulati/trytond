@@ -5,6 +5,7 @@ from ..pool import Pool
 from .test import *
 from .model import *
 from .modelview import *
+from .rpc import *
 from .mptt import *
 from .import_data import *
 from .export_data import *
@@ -121,6 +122,7 @@ def register():
         UnionTree,
         ModelViewChangedValues,
         ModelViewChangedValuesTarget,
+        ModelRPC,
         MPTT,
         ImportDataBoolean,
         ImportDataInteger,

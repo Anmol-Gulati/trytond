@@ -13,16 +13,19 @@ class RPC(object):
     check_access: If access right must be checked
     '''
 
-    __slots__ = ('readonly', 'instantiate', 'result', 'check_access')
+    __slots__ = ('readonly', 'instantiate', 'result', 'check_access', 'atomic')
 
     def __init__(self, readonly=True, instantiate=None, result=None,
-            check_access=True):
+            check_access=True, atomic=True):
         self.readonly = readonly
         self.instantiate = instantiate
         if result is None:
             result = lambda r: r
         self.result = result
         self.check_access = check_access
+        assert atomic or self.instantiate is None, \
+            "Non atomic RPC doesn't support instantiation"
+        self.atomic = atomic
 
     def convert(self, obj, *args, **kwargs):
         args = list(args)
