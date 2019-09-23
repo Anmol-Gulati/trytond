@@ -81,7 +81,10 @@ class DateTime(Field):
         if not value:
             return None
         if isinstance(value, basestring):
-            datepart, timepart = value.split(" ").split("T")
+            if 'T' in value:
+                datepart, timepart = value.split("T")
+            else:
+                datepart, timepart = value.split(" ")
             year, month, day = map(int, datepart.split("-", 2))
             hours, minutes, seconds = map(int, timepart.split(":"))
             return datetime.datetime(year, month, day, hours, minutes, seconds)
