@@ -23,12 +23,15 @@ class ModelRPC(ModelView):
     def echo_atomic_rpc(cls, data):
         return {
             'data': data,
-            'user': Transaction().user
+            'context': Transaction().context,
+            'execution_user': Transaction().user,
         }
 
     @classmethod
-    def echo_non_atomic_rpc(cls, data):
+    def echo_non_atomic_rpc(cls, data, user, context):
         return {
             'data': data,
-            'user': Transaction().user
+            'user': user,
+            'context': context,
+            'execution_user': Transaction().user,
         }
