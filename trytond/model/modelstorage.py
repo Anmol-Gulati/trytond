@@ -820,10 +820,6 @@ class ModelStorage(Model):
         The list of values follows fields_names.
         Relational fields are defined with '/' at any depth.
         '''
-        pool = Pool()
-        ModelAccess = pool.get('ir.model.access')
-        ModelAccess.check(cls.__name__, mode='export')
-
         fields_names = [x.split('/') for x in fields_names]
         data = []
         for record in records:

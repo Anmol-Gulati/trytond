@@ -15,8 +15,6 @@ this repository contains the full copyright notices and license terms. -->
     <field name="perm_create"/>
     <label name="perm_delete"/>
     <field name="perm_delete"/>
-    <label name="perm_export"/>
-    <field name="perm_export"/>
     <separator name="description" colspan="4"/>
     <field name="description" colspan="4"/>
 </form>
