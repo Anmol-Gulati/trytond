@@ -42,6 +42,8 @@ class Group(ModelSQL, ModelView):
        domain=[('global_p', '!=', True), ('default_p', '!=', True)])
     menu_access = MenuMany2Many('ir.ui.menu-res.group',
        'group', 'menu', 'Access Menu')
+    scope = fields.Text('Scope', readonly=True, select=True)
+    description = fields.Text('Description')
 
     @classmethod
     def __setup__(cls):
