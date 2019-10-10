@@ -150,10 +150,30 @@ class Queue(ModelSQL):
             if instances is not None:
                 getattr(Model, self.data['method'])(
                     instances, *self.data['args'], **self.data['kwargs'])
+        self.finished()
+
+    def finished(self):
         if not self.dequeued_at:
             self.dequeued_at = datetime.datetime.now()
         self.finished_at = datetime.datetime.now()
         self.save()
+
+    @classmethod
+    def run_non_atomic(cls, db_name, task_id):
+        with Transaction().start(db_name, 0, context={}, readonly=True):
+            pool = Pool()
+            Queue = pool.get('ir.queue')
+            task = Queue(task_id)
+            Model = pool.get(task.data['model'])
+            instances = task.data['instances']
+            args = task.data['args']
+            kwargs = task.data['kwargs']
+            method_name = task.data['method']
+
+        getattr(Model, method_name)(*([instances] + args), **kwargs)
+
+        with Transaction().start(db_name, 0, context={}, readonly=False):
+            Queue(task_id).finished()
 
     @classmethod
     def caller(cls, model):
@@ -199,6 +219,7 @@ class _Method(object):
             'instances': instances,
             'args': args,
             'kwargs': kwargs,
+            'atomic': kwargs.pop('_atomic', True),
             }
         return self.__queue.push(
             name, data,
