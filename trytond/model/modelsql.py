@@ -12,7 +12,6 @@ from sql.aggregate import Count, Max
 
 from trytond.model import ModelStorage, ModelView
 from trytond.model import fields
-from trytond.signals import record_created , record_updated, record_deleted
 from trytond import backend
 from trytond.tools import reduce_ids, grouped_slice, cursor_dict
 from trytond.const import OPERATORS
@@ -613,9 +612,6 @@ class ModelSQL(ModelStorage):
         cls._update_mptt(field_names, [new_ids] * len(field_names))
 
         cls.trigger_create(records)
-
-        # Emit the signal for record-created
-        record_created.send(cls.__name__, ids=map(int, records))
         return records
 
     @classmethod
@@ -1002,9 +998,6 @@ class ModelSQL(ModelStorage):
             cls._validate(sub_records, field_names=all_field_names)
         cls.trigger_write(trigger_eligibles)
 
-        # Emit a signal that the record has been edited
-        record_updated.send(cls.__name__, ids=all_ids)
-
     @classmethod
     def delete(cls, records):
         DatabaseIntegrityError = backend.get('DatabaseIntegrityError')
@@ -1143,9 +1136,6 @@ class ModelSQL(ModelStorage):
         cls.__insert_history(ids, deleted=True)
 
         cls._update_mptt(tree_ids.keys(), tree_ids.values())
-
-        # Emit a signal that the record has been deleted
-        record_deleted.send(cls.__name__, ids=ids)
 
     @classmethod
     def search(cls, domain, offset=0, limit=None, order=None, count=False,
