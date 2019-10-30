@@ -882,6 +882,7 @@ class ActionActWindow(ActionMixin, ModelSQL, ModelView):
             'id': domain.id,
             'name': domain.name,
             'domain': domain.domain or '[]',
+            'display_record_count': domain.display_record_count,
             'order': domain.order,
             'context': domain.context,
             'view': (domain.custom_view and domain.custom_view.id) or
@@ -975,6 +976,9 @@ class ActionActWindowDomain(ModelSQL, ModelView):
     domain = fields.Char('Domain')
     act_window = fields.Many2One('ir.action.act_window', 'Action',
         select=True, required=True, ondelete='CASCADE')
+    display_record_count = fields.Boolean(
+        'Display record counts', help="Impacts performance"
+    )
     active = fields.Boolean('Active')
     order = fields.Char('Order Value')
     context = fields.Char('Context Value')
@@ -1003,6 +1007,10 @@ class ActionActWindowDomain(ModelSQL, ModelView):
 
     @staticmethod
     def default_active():
+        return True
+
+    @staticmethod
+    def default_display_record_count():
         return True
 
     @staticmethod
