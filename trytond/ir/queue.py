@@ -73,7 +73,8 @@ class Queue(ModelSQL):
                 & (queue.dequeued_at == Null),
                 order_by=[
                     queue.scheduled_at.nulls_first,
-                    queue.expected_at.nulls_first]))
+                    queue.expected_at.nulls_first],
+                limit=1000))
         selected = With('id', query=candidates.select(
                 candidates.id,
                 where=((candidates.scheduled_at <= CurrentTimestamp())
