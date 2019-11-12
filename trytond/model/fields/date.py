@@ -87,7 +87,11 @@ class DateTime(Field):
                 datepart, timepart = value.split(" ")
             year, month, day = map(int, datepart.split("-", 2))
             hours, minutes, seconds = map(int, timepart.split(":"))
-            return datetime.datetime(year, month, day, hours, minutes, seconds)
+            try:
+                return datetime.datetime(year, month, day, hours, minutes, seconds)
+            except ValueError as error:
+                message = 'Invalid value for datetime: {}'.format(str(error))
+                raise UserValueError(message)
         assert(isinstance(value, datetime.datetime))
         return value.replace(microsecond=0)
 
@@ -121,8 +125,13 @@ class Timestamp(Field):
                 microseconds = int(timepart_full[1])
             else:
                 microseconds = 0
-            return datetime.datetime(year, month, day, hours, minutes, seconds,
-                    microseconds)
+            try:
+                return datetime.datetime(
+                    year, month, day, hours, minutes, seconds, microseconds
+                )
+            except ValueError as error:
+                message = 'Invalid value for timestamp: {}'.format(str(error))
+                raise UserValueError(message)
         assert(isinstance(value, datetime.datetime))
         return value
 
@@ -149,7 +158,11 @@ class Time(DateTime):
             return None
         if isinstance(value, basestring):
             hours, minutes, seconds = map(int, value.split(":"))
-            return datetime.time(hours, minutes, seconds)
+            try:
+                return datetime.time(hours, minutes, seconds)
+            except ValueError as error:
+                message = 'Invalid value for time: {}'.format(str(error))
+                raise UserValueError(message)
         assert(isinstance(value, datetime.time))
         return value.replace(microsecond=0)
 
