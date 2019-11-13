@@ -16,6 +16,7 @@ class Queue(ModelSQL):
     "Queue"
     __name__ = 'ir.queue'
     name = fields.Char("Name", required=True)
+    priority = fields.Integer("Priority")
 
     data = fields.Dict(None, "Data")
 
@@ -44,13 +45,16 @@ class Queue(ModelSQL):
         return super(Queue, cls).copy(records, default=default)
 
     @classmethod
-    def push(cls, name, data, scheduled_at=None, expected_at=None):
+    def push(
+        cls, name, data, scheduled_at=None, expected_at=None, priority=None
+    ):
         transaction = Transaction()
         database = transaction.database
         cursor = transaction.connection.cursor()
         with transaction.set_user(0):
             record, = cls.create([{
                         'name': name,
+                        'priority': priority,
                         'data': data,
                         'scheduled_at': scheduled_at,
                         'expected_at': expected_at,
@@ -90,27 +94,27 @@ class Queue(ModelSQL):
                     ),
                 where=candidates.scheduled_at >= CurrentTimestamp()))
 
-        task_id, seconds, queue_name = None, None, None
+        task_id, seconds, queue_name, priority = None, None, None, None
         if database.has_returning():
             query = queue.update([queue.dequeued_at], [CurrentTimestamp()],
                 where=queue.id == selected.select(selected.id),
                 with_=[candidates, selected, next_timeout],
                 returning=[
                     queue.id, next_timeout.select(next_timeout.seconds),
-                    queue.name
+                    queue.name, queue.priority
                 ])
             cursor.execute(*query)
             row = cursor.fetchone()
             if row:
-                task_id, seconds, queue_name = row
+                task_id, seconds, queue_name, priority = row
         else:
-            query = queue.select(queue.id, queue.name,
+            query = queue.select(queue.id, queue.name, priority,
                 where=queue.id == selected.select(selected.id),
                 with_=[candidates, selected])
             cursor.execute(*query)
             row = cursor.fetchone()
             if row:
-                task_id, queue_name = row
+                task_id, queue_name, priority = row
                 query = queue.update([queue.dequeued_at], [CurrentTimestamp()],
                     where=queue.id == task_id)
                 cursor.execute(*query)
@@ -122,7 +126,7 @@ class Queue(ModelSQL):
 
         if not task_id and database.has_channel():
             cursor.execute('LISTEN "%s"', (cls.__name__,))
-        return task_id, seconds, queue_name
+        return task_id, seconds, queue_name, priority
 
     def run(self):
         transaction = Transaction()
@@ -200,6 +204,7 @@ class _Method(object):
         transaction = Transaction()
         context = transaction.context
         name = context.pop('queue_name', 'default')
+        priority = context.pop('priority', None)
         now = datetime.datetime.now()
         scheduled_at = context.pop('queue_scheduled_at', None)
         if scheduled_at is not None:
@@ -223,5 +228,5 @@ class _Method(object):
             'atomic': kwargs.pop('_atomic', True),
             }
         return self.__queue.push(
-            name, data,
+            name, data, priority=priority,
             scheduled_at=scheduled_at, expected_at=expected_at)
