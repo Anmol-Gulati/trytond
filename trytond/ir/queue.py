@@ -1,6 +1,7 @@
 # This file is part of Tryton.  The COPYRIGHT file at the top level of
 # this repository contains the full copyright notices and license terms.
 import datetime
+import copy
 
 from sql import With, Literal, Null
 from sql.aggregate import Min
@@ -152,9 +153,12 @@ class Queue(ModelSQL):
                         [i for i in instances if i in ids])
                 else:
                     instances = None
+            resultant_args = copy.copy(self.data['args'])
             if instances is not None:
-                getattr(Model, self.data['method'])(
-                    instances, *self.data['args'], **self.data['kwargs'])
+                resultant_args = [instances] + resultant_args
+            getattr(Model, self.data['method'])(
+                *resultant_args, **self.data['kwargs']
+            )
         self.finished()
 
     def finished(self):
@@ -200,7 +204,7 @@ class _Method(object):
         self.__model = model
         self.__name = name
 
-    def __call__(self, instances, *args, **kwargs):
+    def __call__(self, instances=None, *args, **kwargs):
         transaction = Transaction()
         context = transaction.context
         name = context.pop('queue_name', 'default')
@@ -213,6 +217,7 @@ class _Method(object):
         context.pop('_check_access', None)
         if expected_at is not None:
             expected_at = now + expected_at
+        instances = instances or []
         try:
             instances = list(map(int, instances))
         except TypeError:
