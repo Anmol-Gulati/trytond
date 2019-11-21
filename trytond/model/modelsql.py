@@ -2,7 +2,7 @@
 # this repository contains the full copyright notices and license terms.
 import datetime
 from itertools import islice, izip, chain, ifilter
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 
 from sql import Table, Column, Literal, Desc, Asc, Expression, Null
 from sql.functions import CurrentTimestamp, Extract
@@ -497,6 +497,9 @@ class ModelSQL(ModelStorage):
         defaults_cache = {}  # Store already computed default values
         new_ids = []
         vlist = [v.copy() for v in vlist]
+        # A way to reduce round trips to the database
+        batch_insert_values = defaultdict(list)
+        ordered_queries = []
         for values in vlist:
             # Clean values
             for key in ('create_uid', 'create_date',
@@ -522,39 +525,51 @@ class ModelSQL(ModelStorage):
                 values.update(defaults)
                 defaults_cache.update(defaults)
 
-            insert_columns = [table.create_uid, table.create_date]
+            insert_columns = ['create_uid', 'create_date']
             insert_values = [transaction.user, CurrentTimestamp()]
 
             # Insert record
             for fname, value in values.iteritems():
                 field = cls._fields[fname]
                 if not hasattr(field, 'set'):
-                    insert_columns.append(Column(table, fname))
+                    # insert_columns.append(Column(table, fname))
+                    insert_columns.append(fname)
                     insert_values.append(field.sql_format(value))
 
-            try:
-                if transaction.database.has_returning():
-                    cursor.execute(*table.insert(insert_columns,
-                            [insert_values], [table.id]))
-                    id_new, = cursor.fetchone()
-                else:
-                    id_new = transaction.database.nextid(
-                        transaction.connection, cls._table)
-                    if id_new:
-                        insert_columns.append(table.id)
-                        insert_values.append(id_new)
-                        cursor.execute(*table.insert(insert_columns,
-                                [insert_values]))
-                    else:
-                        cursor.execute(*table.insert(insert_columns,
-                                [insert_values]))
-                        id_new = transaction.database.lastid(cursor)
-                new_ids.append(id_new)
-            except DatabaseIntegrityError, exception:
-                with Transaction().new_transaction(), \
-                        Transaction().set_context(_check_access=False):
+            batch_insert_values[tuple(insert_columns)].append(insert_values)
+            ordered_queries.append([insert_columns, insert_values])
+
+        try:
+            if len(batch_insert_values) == 1:
+                # Just a single type of query that is really efficient
+                # So execute a large insert
+                columns, = batch_insert_values.keys()
+                values, = batch_insert_values.values()
+                cursor.execute(
+                    *table.insert(
+                        [Column(table, fname) for fname in columns],
+                        values,
+                        [table.id]
+                    )
+                )
+                rvalues = cursor.fetchall()
+                new_ids.extend([each[0] for each in rvalues])
+            else:
+                for columns, values in ordered_queries:
+                    cursor.execute(
+                        *table.insert(
+                            [Column(table, fname) for fname in columns],
+                            [values],
+                            [table.id]
+                        )
+                    )
+                    new_ids.append(cursor.fetchone()[0])
+        except DatabaseIntegrityError as exception:
+            with Transaction().new_transaction(), \
+                    Transaction().set_context(_check_access=False):
+                for values in vlist:
                     cls.__raise_integrity_error(exception, values)
-                raise
+            raise
 
         domain = Rule.domain_get(cls.__name__, mode='create')
         if domain:
