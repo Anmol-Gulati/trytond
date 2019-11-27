@@ -610,8 +610,8 @@ class ModelView(Model):
                         break
             return views
 
-        attribs = filter(
-            lambda x: x.startswith('data-'), element.attrib.keys())
+        attribs = list(filter(
+            lambda x: x.startswith('data-'), element.attrib.keys()))
         attribs += ['name', 'icon']
         for attr in attribs:
             if not element.get(attr):

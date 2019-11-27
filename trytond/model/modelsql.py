@@ -2,7 +2,7 @@
 # this repository contains the full copyright notices and license terms.
 import datetime
 from itertools import islice, chain
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from functools import wraps
 
 from sql import (Table, Column, Literal, Desc, Asc, Expression, Null,

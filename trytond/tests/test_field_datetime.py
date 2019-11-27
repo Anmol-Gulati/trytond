@@ -3,7 +3,7 @@
 import datetime
 import unittest
 
-from trytond.exceptions import UserError
+from trytond.exceptions import UserError, UserValueError
 from trytond.pool import Pool
 from trytond.tests.test_tryton import activate_module, with_transaction
 
@@ -50,7 +50,7 @@ class FieldDateTimeTestCase(unittest.TestCase):
         "Test create datetime with invalid datetime string"
         DateTime = Pool().get('test.datetime')
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             DateTime.create([{
                         'datetime': '2009-02-29',
                         }])
@@ -78,7 +78,7 @@ class FieldDateTimeTestCase(unittest.TestCase):
         "Test create datetime with non datetime"
         DateTime = Pool().get('test.datetime')
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             DateTime.create([{
                         'datetime': 'non datetime',
                         }])
@@ -88,7 +88,7 @@ class FieldDateTimeTestCase(unittest.TestCase):
         "Test create datetime with integer"
         DateTime = Pool().get('test.datetime')
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             DateTime.create([{
                         'datetime': 42,
                         }])
@@ -98,7 +98,7 @@ class FieldDateTimeTestCase(unittest.TestCase):
         "Test create datetime with date"
         DateTime = Pool().get('test.datetime')
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             DateTime.create([{
                         'datetime': datetime.date(2009, 1, 1),
                         }])
@@ -433,7 +433,7 @@ class FieldDateTimeTestCase(unittest.TestCase):
                     'datetime': today,
                     }])
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             DateTime.write([datetime], {
                     'datetime': 'non datetime',
                     })
@@ -446,7 +446,7 @@ class FieldDateTimeTestCase(unittest.TestCase):
                     'datetime': today,
                     }])
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             DateTime.write([datetime], {
                     'datetime': 42,
                     })
@@ -459,7 +459,7 @@ class FieldDateTimeTestCase(unittest.TestCase):
                     'datetime': today,
                     }])
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             DateTime.write([datetime_], {
                     'datetime': datetime.date(2009, 1, 1),
                     })

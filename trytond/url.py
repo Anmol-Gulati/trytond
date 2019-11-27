@@ -34,7 +34,7 @@ class URLAccessor(object):
 
         url_part['name'] = cls.__name__
 
-        local_part = urllib.quote('%(type)s/%(name)s' % url_part)
+        local_part = urllib.parse.quote('%(type)s/%(name)s' % url_part)
         if isinstance(inst, Model) and inst.id:
             local_part += '/%d' % inst.id
 

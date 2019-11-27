@@ -3,7 +3,7 @@
 
 import datetime
 import time
-import unicodecsv as csv
+import csv
 import warnings
 import tempfile
 from decimal import Decimal
@@ -532,10 +532,10 @@ class ModelStorage(Model):
                                 convert_data(fields_translate, data))
                         cls.write(*to_write)
 
-        for origin_id, target_id in to_write.items():
+        for origin_id, target in id2new_record.items():
             Activity.create([{
                 'type': 'duplicate',
-                'object_record': '%s,%d' % (cls.__name__, target_id),
+                'object_record': '%s,%d' % (cls.__name__, target.id),
                 'target_record': '%s,%d' % (cls.__name__, origin_id),
             }])
         return new_records

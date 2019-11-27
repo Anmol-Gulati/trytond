@@ -3,7 +3,7 @@
 import datetime
 import unittest
 
-from trytond.exceptions import UserError
+from trytond.exceptions import UserError, UserValueError
 from trytond.pool import Pool
 from trytond.tests.test_tryton import activate_module, with_transaction
 
@@ -57,7 +57,7 @@ class FieldTimeDeltaTestCase(unittest.TestCase):
         "Test create timedelta with non timedelta"
         TimeDelta = Pool().get('test.timedelta')
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             TimeDelta.create([{
                         'timedelta': 'non timedelta',
                         }])
@@ -67,7 +67,7 @@ class FieldTimeDeltaTestCase(unittest.TestCase):
         "Test create timedelta with integer"
         TimeDelta = Pool().get('test.timedelta')
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             TimeDelta.create([{
                         'timedelta': 42,
                         }])
@@ -369,7 +369,7 @@ class FieldTimeDeltaTestCase(unittest.TestCase):
                     'timedelta': hour,
                     }])
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             TimeDelta.write([timedelta], {
                     'timedelta': 'non timedelta',
                     })
@@ -382,7 +382,7 @@ class FieldTimeDeltaTestCase(unittest.TestCase):
                     'timedelta': hour,
                     }])
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             TimeDelta.write([timedelta], {
                     'timedelta': 42,
                     })

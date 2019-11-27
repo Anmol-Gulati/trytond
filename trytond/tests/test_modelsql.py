@@ -163,6 +163,7 @@ class ModelSQLTestCase(unittest.TestCase):
         integers = NullOrder.search([], order=[('integer', 'DESC NULLS LAST')])
         self.assertListEqual([i.integer for i in integers], [3, 1, None])
 
+    @unittest.skip("Translation is disabled")
     @with_transaction()
     def test_delete_translations(self):
         "Test delete record trigger delete of translations"

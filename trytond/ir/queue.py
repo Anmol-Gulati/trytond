@@ -34,6 +34,7 @@ class Queue(ModelSQL):
     def default_enqueued_at(cls):
         return datetime.datetime.utcnow()
 
+    @classmethod
     def __register__(cls, module_name):
         queue = cls.__table__()
         super().__register__(module_name)

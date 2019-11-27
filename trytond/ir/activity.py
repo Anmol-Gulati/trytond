@@ -28,12 +28,7 @@ class Activity(ModelSQL, ModelView):
         Return all models
         """
         Model = Pool().get('ir.model')
-
-        if not hasattr(cls, '_models_cache'):
-            cls._models_cache = map(
-                lambda m: (m.model, m.name), Model.search([]))
-
-        return cls._models_cache
+        return [(model.model, model.name) for model in Model.search([])]
 
     def get_actor(self, name):
         return {

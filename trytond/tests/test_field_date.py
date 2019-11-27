@@ -3,7 +3,7 @@
 import datetime
 import unittest
 
-from trytond.exceptions import UserError
+from trytond.exceptions import UserError, UserValueError
 from trytond.pool import Pool
 from trytond.tests.test_tryton import activate_module, with_transaction
 
@@ -50,7 +50,7 @@ class FieldDateTestCase(unittest.TestCase):
         "Test create date with invalid date string"
         Date = Pool().get('test.date')
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             Date.create([{
                         'date': '2009-02-29',
                         }])
@@ -78,7 +78,7 @@ class FieldDateTestCase(unittest.TestCase):
         "Test create date with non date"
         Date = Pool().get('test.date')
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             Date.create([{
                         'date': 'non date',
                         }])
@@ -88,7 +88,7 @@ class FieldDateTestCase(unittest.TestCase):
         "Test create date with integer"
         Date = Pool().get('test.date')
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             Date.create([{
                         'date': 42,
                         }])
@@ -98,7 +98,7 @@ class FieldDateTestCase(unittest.TestCase):
         "Test create date with datetime"
         Date = Pool().get('test.date')
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             Date.create([{
                         'date': datetime.datetime(2009, 1, 1, 12, 0),
                         }])
@@ -400,7 +400,7 @@ class FieldDateTestCase(unittest.TestCase):
                     'date': today,
                     }])
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             Date.write([date], {
                     'date': 'non date',
                     })
@@ -413,7 +413,7 @@ class FieldDateTestCase(unittest.TestCase):
                     'date': today,
                     }])
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             Date.write([date], {
                     'date': 42,
                     })
@@ -426,7 +426,7 @@ class FieldDateTestCase(unittest.TestCase):
                     'date': today,
                     }])
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             Date.write([date], {
                     'date': datetime.datetime(2009, 1, 1, 12, 0),
                     })

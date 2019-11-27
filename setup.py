@@ -20,7 +20,6 @@ def get_version():
     return re.search('__version__ = "([0-9\w.]*)"', init).group(1)
 
 
-
 version = get_version()
 major_version, minor_version, _ = version.split('.', 2)
 major_version = int(major_version)
@@ -111,12 +110,8 @@ setup(name=name,
         'python-sql >= 0.5',
         'werkzeug',
         'wrapt',
-<<<<<<< HEAD
         'fulfil-s3-temp-storage',
-        'unicodecsv',
-=======
         'passlib',
->>>>>>> 9ec0d1a20a8369935d148acb9989a8afbe9d5308
         ],
     extras_require={
         'PostgreSQL': pg_require,

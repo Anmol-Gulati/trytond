@@ -35,7 +35,7 @@ class Date(Field):
             return None
         if isinstance(value, str):
             try:
-                year, month, day = map(int, value.split("-", 2))
+                year, month, day = list(map(int, value.split("-", 2)))
             except ValueError:
                 raise UserValueError(
                     'Invalid date formatting. Expected yyyy-mm-dd.'
@@ -45,18 +45,12 @@ class Date(Field):
             except ValueError as error:
                 raise UserValueError(error)
 
-        try:
-            # Allow datetime with min time for XML-RPC
-            # datetime must be tested separately because datetime is a
-            # subclass of date
-            assert(
-                isinstance(value, datetime.date) and (
-                    not isinstance(value, datetime.datetime) or (
-                        value.time() == datetime.time()
-                    )
-                )
-            )
-        except AssertionError:
+        if (not isinstance(value, datetime.date)
+                # Allow datetime with min time for XML-RPC
+                # datetime must be tested separately because datetime is a
+                # subclass of date
+                or (isinstance(value, datetime.datetime)
+                    and value.time() != datetime.time())):
             raise UserValueError(
                 'Invalid value for datetime. It should use fulfil encoding.'
             )
@@ -94,18 +88,21 @@ class DateTime(Field):
         if not value:
             return None
         if isinstance(value, str):
-            if 'T' in value:
-                datepart, timepart = value.split("T")
-            else:
-                datepart, timepart = value.split(" ")
-            year, month, day = map(int, datepart.split("-", 2))
-            hours, minutes, seconds = map(int, timepart.split(":"))
             try:
+                if 'T' in value:
+                    datepart, timepart = value.split("T")
+                else:
+                    datepart, timepart = value.split(" ")
+                year, month, day = list(map(int, datepart.split("-", 2)))
+                hours, minutes, seconds = list(map(int, timepart.split(":")))
                 return datetime.datetime(year, month, day, hours, minutes, seconds)
             except ValueError as error:
                 message = 'Invalid value for datetime: {}'.format(str(error))
                 raise UserValueError(message)
-        assert(isinstance(value, datetime.datetime))
+        if not isinstance(value, datetime.datetime):
+            raise UserValueError(
+                'Invalid value for datetime. It should use fulfil encoding.'
+            )
         return value.replace(microsecond=0)
 
     def sql_cast(self, expression):
@@ -127,9 +124,9 @@ class Timestamp(Field):
             return None
         if isinstance(value, str):
             datepart, timepart = value.split(" ")
-            year, month, day = map(int, datepart.split("-", 2))
+            year, month, day = list(map(int, datepart.split("-", 2)))
             timepart_full = timepart.split(".", 1)
-            hours, minutes, seconds = map(int, timepart_full[0].split(":"))
+            hours, minutes, seconds = list(map(int, timepart_full[0].split(":")))
             if len(timepart_full) == 2:
                 microseconds = int(timepart_full[1])
             else:
@@ -141,7 +138,10 @@ class Timestamp(Field):
             except ValueError as error:
                 message = 'Invalid value for timestamp: {}'.format(str(error))
                 raise UserValueError(message)
-        assert(isinstance(value, datetime.datetime))
+        if not isinstance(value, datetime.datetime):
+            raise UserValueError(
+                'Invalid value for timestamp. It should use fulfil encoding.'
+            )
         return value
 
 
@@ -156,13 +156,16 @@ class Time(DateTime):
         if value is None:
             return None
         if isinstance(value, str):
-            hours, minutes, seconds = map(int, value.split(":"))
             try:
+                hours, minutes, seconds = list(map(int, value.split(":")))
                 return datetime.time(hours, minutes, seconds)
             except ValueError as error:
                 message = 'Invalid value for time: {}'.format(str(error))
                 raise UserValueError(message)
-        assert(isinstance(value, datetime.time))
+        if not isinstance(value, datetime.time):
+            raise UserValueError(
+                'Invalid value for time. It should use fulfil encoding.'
+            )
         return value.replace(microsecond=0)
 
     def sql_cast(self, expression):
@@ -196,8 +199,9 @@ class TimeDelta(Field):
         if value is None:
             return None
         if not isinstance(value, datetime.timedelta):
-            raise ValueError("invalid type '%s' for %s"
-                % (type(value), type(self)))
+            raise UserValueError(
+                'Invalid value for timedelta. It should use fulfil encoding.'
+            )
         return super(TimeDelta, self).sql_format(value)
 
     @classmethod

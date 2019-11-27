@@ -2,7 +2,7 @@
 # repository contains the full copyright notices and license terms.
 from sql.operators import BinaryOperator
 
-from .field import Field, SQLType, SQL_OPERATORS
+from .field import Field, SQL_OPERATORS
 
 
 class JSONText(BinaryOperator):
@@ -13,9 +13,7 @@ class JSONText(BinaryOperator):
 class JSON(Field):
     'Define json field.'
     _type = 'json'
-
-    def sql_type(self):
-        return SQLType('JSON', 'JSON')
+    _sql_type = 'JSON'
 
     def convert_domain(self, domain, tables, Model):
         table, _ = tables[None]

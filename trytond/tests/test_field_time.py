@@ -3,7 +3,7 @@
 import datetime
 import unittest
 
-from trytond.exceptions import UserError
+from trytond.exceptions import UserError, UserValueError
 from trytond.pool import Pool
 from trytond.tests.test_tryton import activate_module, with_transaction
 
@@ -50,7 +50,7 @@ class FieldTimeTestCase(unittest.TestCase):
         "Test create time with invalid time string"
         Time = Pool().get('test.time')
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             Time.create([{
                         'time': '2009-02-29',
                         }])
@@ -78,7 +78,7 @@ class FieldTimeTestCase(unittest.TestCase):
         "Test create time with non time"
         Time = Pool().get('test.time')
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             Time.create([{
                         'time': 'non time',
                         }])
@@ -88,7 +88,7 @@ class FieldTimeTestCase(unittest.TestCase):
         "Test create time with integer"
         Time = Pool().get('test.time')
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             Time.create([{
                         'time': 42,
                         }])
@@ -98,7 +98,7 @@ class FieldTimeTestCase(unittest.TestCase):
         "Test create time with date"
         Time = Pool().get('test.time')
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             Time.create([{
                         'time': datetime.date(2009, 1, 1),
                         }])
@@ -433,7 +433,7 @@ class FieldTimeTestCase(unittest.TestCase):
                     'time': evening,
                     }])
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             Time.write([time], {
                     'time': 'non time',
                     })
@@ -446,7 +446,7 @@ class FieldTimeTestCase(unittest.TestCase):
                     'time': evening,
                     }])
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             Time.write([time], {
                     'time': 42,
                     })
@@ -459,7 +459,7 @@ class FieldTimeTestCase(unittest.TestCase):
                     'time': evening,
                     }])
 
-        with self.assertRaises(ValueError):
+        with self.assertRaises(UserValueError):
             Time.write([time], {
                     'time': datetime.date(2009, 1, 1),
                     })

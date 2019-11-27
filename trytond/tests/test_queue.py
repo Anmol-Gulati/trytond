@@ -5,7 +5,7 @@ All tests for queue
 import unittest
 
 from trytond.pool import Pool
-from trytond.tests.test_tryton import install_module, with_transaction
+from trytond.tests.test_tryton import activate_module, with_transaction
 
 
 class QueueTestCase(unittest.TestCase):
@@ -13,7 +13,7 @@ class QueueTestCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        install_module('tests')
+        activate_module('tests')
 
     @with_transaction()
     def test_queue_params(self):
