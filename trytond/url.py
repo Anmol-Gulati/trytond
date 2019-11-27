@@ -2,13 +2,12 @@
 # this repository contains the full copyright notices and license terms.
 
 import encodings.idna
-import urllib
 import socket
+import urllib.parse
 
 from trytond.config import config
-from trytond.transaction import Transaction
 
-__all__ = ['URLMixin']
+__all__ = ['URLMixin', 'HOSTNAME']
 
 HOSTNAME = (config.get('web', 'hostname')
     or socket.getfqdn())

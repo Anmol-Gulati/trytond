@@ -10,6 +10,7 @@ import warnings
 __all__ = ['TableHandler']
 
 logger = logging.getLogger(__name__)
+VARCHAR_SIZE_RE = re.compile('VARCHAR\(([0-9]+)\)')
 
 
 class TableHandler(TableHandlerInterface):
@@ -85,45 +86,42 @@ class TableHandler(TableHandlerInterface):
             cursor.execute('ALTER TABLE "%s" RENAME TO "%s"'
                 % (old_history, new_history))
 
-    @staticmethod
-    def sequence_exist(sequence_name):
-        return True
-
-    @staticmethod
-    def sequence_rename(old_name, new_name):
-        pass
-
     def column_exist(self, column_name):
         return column_name in self._columns
 
-    def column_rename(self, old_name, new_name, exception=False):
-        cursor = Transaction().connection.cursor()
-        if self.column_exist(old_name) and \
-                not self.column_exist(new_name):
-            temp_table = '_temp_%s' % self.table_name
-            TableHandler.table_rename(self.table_name, temp_table)
-            new_table = TableHandler(self._model, history=self.history)
-            for column, (notnull, hasdef, size, typname) \
-                    in self._columns.iteritems():
-                if column == old_name:
-                    column = new_name
-                new_table.add_raw_column(column, typname, False,
-                    field_size=size)
-            new_columns = new_table._columns.keys()
-            old_columns = [x if x != old_name else new_name
-                for x in new_columns]
-            cursor.execute(('INSERT INTO "%s" (' +
-                    ','.join('"%s"' % x for x in new_columns) +
-                    ') SELECT ' +
-                    ','.join('"%s"' % x for x in old_columns) + ' ' +
-                    'FROM "%s"') % (self.table_name, temp_table))
-            cursor.execute('DROP TABLE "%s"' % temp_table)
-            self._update_definitions()
-        elif exception and self.column_exist(new_name):
-            raise Exception('Unable to rename column %s.%s to %s.%s: '
-                '%s.%s already exist!'
-                % (self.table_name, old_name, self.table_name, new_name,
-                    self.table_name, new_name))
+    def _recreate_table(self, new_columns):
+        transaction = Transaction()
+        database = transaction.database
+        cursor = transaction.connection.cursor()
+        temp_table = '__temp_%s' % self.table_name
+        TableHandler.table_rename(self.table_name, temp_table)
+        new_table = TableHandler(self._model, history=self.history)
+        columns, old_columns = [], []
+        for column, values in self._columns.items():
+            typname = new_columns.get(column, {}).get(
+                'typname', values['typname'])
+            size = new_columns.get(column, {}).get('size', values['size'])
+            new_column = new_columns.get(column, {}).get('name', column)
+            new_table._add_raw_column(
+                new_column, database.sql_type(typname), field_size=size)
+            columns.append(new_column)
+            old_columns.append(column)
+        cursor.execute(('INSERT INTO "%s" (' +
+                ','.join('"%s"' % x for x in columns) +
+                ') SELECT ' +
+                ','.join('"%s"' % x for x in old_columns) + ' ' +
+                'FROM "%s"') % (self.table_name, temp_table))
+        cursor.execute('DROP TABLE "%s"' % temp_table)
+        self._update_definitions()
+
+    def column_rename(self, old_name, new_name):
+        if self.column_exist(old_name):
+            if not self.column_exist(new_name):
+                self._recreate_table({old_name: {'name': new_name}})
+            else:
+                logger.warning(
+                    'Unable to rename column %s on table %s to %s.',
+                    old_name, self.table_name, new_name)
 
     def _update_definitions(self, columns=None, indexes=None):
         if columns is None and indexes is None:
@@ -168,19 +166,26 @@ class TableHandler(TableHandlerInterface):
         return dict(cursor)
 
     def alter_size(self, column_name, column_type):
-        warnings.warn('Unable to alter size of column with SQLite backend')
+        self._recreate_table({column_name: {'size': column_type}})
 
     def alter_type(self, column_name, column_type):
-        warnings.warn('Unable to alter type of column with SQLite backend')
+        self._recreate_table({column_name: {'typname': column_type}})
 
     def db_default(self, column_name, value):
         warnings.warn('Unable to set default on column with SQLite backend')
 
-    def add_raw_column(self, column_name, column_type, column_format,
-            default_fun=None, field_size=None, migrate=True, string=''):
+    def add_column(self, column_name, sql_type, default=None, comment=''):
+        database = Transaction().database
+        column_type = database.sql_type(sql_type)
+        match = VARCHAR_SIZE_RE.match(sql_type)
+        field_size = int(match.group(1)) if match else None
+
+        self._add_raw_column(column_name, column_type, default, field_size,
+            comment)
+
+    def _add_raw_column(self, column_name, column_type, default=None,
+            field_size=None, string=''):
         if self.column_exist(column_name):
-            if not migrate:
-                return
             base_type = column_type[0].upper()
             if base_type != self._columns[column_name]['typname']:
                 if (self._columns[column_name]['typname'], base_type) in [
@@ -219,21 +224,16 @@ class TableHandler(TableHandlerInterface):
 
         cursor = Transaction().connection.cursor()
         column_type = column_type[1]
-        default = ''
-        cursor.execute(('ALTER TABLE "%s" ADD COLUMN "%s" %s' + default) %
+        cursor.execute(('ALTER TABLE "%s" ADD COLUMN "%s" %s') %
                        (self.table_name, column_name, column_type))
 
-        if column_format:
+        if default:
             # check if table is non-empty:
             cursor.execute('SELECT 1 FROM "%s" limit 1' % self.table_name)
             if cursor.fetchone():
                 # Populate column with default values:
-                default = None
-                if default_fun is not None:
-                    default = default_fun()
                 cursor.execute('UPDATE "' + self.table_name + '" '
-                    'SET "' + column_name + '" = ?',
-                    (column_format(default),))
+                    'SET "' + column_name + '" = ?', (default(),))
 
         self._update_definitions(columns=True)
 
@@ -243,24 +243,53 @@ class TableHandler(TableHandlerInterface):
     def drop_fk(self, column_name, table=None):
         warnings.warn('Unable to drop foreign key with SQLite backend')
 
-    def index_action(self, column_name, action='add', table=None):
-        if isinstance(column_name, basestring):
-            column_name = [column_name]
-        index_name = self.convert_name(
-            self.table_name + "_" + '_'.join(column_name) + "_index")
+    def index_action(self, columns, action='add', where='', table=None):
+        if isinstance(columns, str):
+            columns = [columns]
+
+        def stringify(column):
+            if isinstance(column, str):
+                return column
+            else:
+                return ('_'.join(
+                        map(str, (column,) + column.params))
+                    .replace('"', '')
+                    .replace('?', '__'))
+
+        name = [table or self.table_name]
+        name.append('_'.join(map(stringify, columns)))
+        if where:
+            name.append('+where')
+            name.append(stringify(where))
+        name.append('index')
+        index_name = self.convert_name('_'.join(name))
 
         cursor = Transaction().connection.cursor()
         if action == 'add':
             if index_name in self._indexes:
                 return
+            columns_quoted = []
+            for column in columns:
+                if isinstance(column, str):
+                    columns_quoted.append('"%s"' % column)
+                else:
+                    columns_quoted.append(str(column))
+            params = sum(
+                (c.params for c in columns if hasattr(c, 'params')), ())
+            if where:
+                params += where.params
+                where = ' WHERE %s' % where
+            if params:
+                warnings.warn('Unable to create index with parameters')
+                return
             cursor.execute('CREATE INDEX "' + index_name + '" '
-                'ON "' + self.table_name + '" ( ' +
-                ','.join('"' + x + '"' for x in column_name) +
-                ')')
+                'ON "' + self.table_name + '" '
+                + '(' + ','.join(columns_quoted) + ')' + where,
+                params)
             self._update_definitions(indexes=True)
         elif action == 'remove':
-            if len(column_name) == 1:
-                if self._field2module.get(column_name[0],
+            if len(columns) == 1 and isinstance(columns[0], str):
+                if self._field2module.get(columns[0],
                         self.module_name) != self.module_name:
                     return
 
@@ -281,14 +310,35 @@ class TableHandler(TableHandlerInterface):
         else:
             raise Exception('Not null action not supported!')
 
-    def add_constraint(self, ident, constraint, exception=False):
+    def add_constraint(self, ident, constraint):
         warnings.warn('Unable to add constraint with SQLite backend')
 
-    def drop_constraint(self, ident, exception=False, table=None):
+    def drop_constraint(self, ident, table=None):
         warnings.warn('Unable to drop constraint with SQLite backend')
 
-    def drop_column(self, column_name, exception=False):
-        warnings.warn('Unable to drop column with SQLite backend')
+    def drop_column(self, column_name):
+        if not self.column_exist(column_name):
+            return
+        transaction = Transaction()
+        database = transaction.database
+        cursor = transaction.connection.cursor()
+        temp_table = '__temp_%s' % self.table_name
+        TableHandler.table_rename(self.table_name, temp_table)
+        new_table = TableHandler(self._model, history=self.history)
+        for name, values in self._columns.items():
+            if name != column_name:
+                typname = values['typname']
+                size = values['size']
+                new_table._add_raw_column(
+                    name, database.sql_type(typname), field_size=size)
+        columns_name = list(new_table._columns.keys())
+        cursor.execute(('INSERT INTO "%s" (' +
+                        ','.join('"%s"' % c for c in columns_name) +
+                        ') SELECT ' +
+                        ','.join('"%s"' % c for c in columns_name) + ' ' +
+                        'FROM "%s"') % (self.table_name, temp_table))
+        cursor.execute('DROP TABLE "%s"' % temp_table)
+        self._update_definitions()
 
     @staticmethod
     def drop_table(model, table, cascade=False):

@@ -14,6 +14,8 @@ from trytond.pool import Pool
 from trytond.exceptions import UserError
 from trytond.rpc import RPC
 
+from .fields import on_change_result
+
 __all__ = ['ModelView']
 
 
@@ -86,10 +88,6 @@ def on_change(func):
     return wrapper
 
 
-def on_change_result(record):
-    return record._changed_values
-
-
 class ModelView(Model):
     """
     Define a model with views in Tryton.
@@ -108,7 +106,7 @@ class ModelView(Model):
         from trytond.modules import create_graph, get_module_list
         if ModelView.__modules_list:
             return ModelView.__modules_list
-        graph = create_graph(get_module_list())[0]
+        graph = create_graph(get_module_list())
         ModelView.__modules_list = [x.name for x in graph] + [None]
         return ModelView.__modules_list
 
@@ -121,82 +119,86 @@ class ModelView(Model):
         cls.__rpc__['on_change_with'] = RPC(instantiate=0)
         cls._buttons = {}
 
-        if hasattr(cls, '__depend_methods'):
-            cls.__depend_methods = cls.__depend_methods.copy()
-        else:
-            cls.__depend_methods = collections.defaultdict(set)
-
-        if hasattr(cls, '__change_buttons'):
-            cls.__change_buttons = cls.__change_buttons.copy()
-        else:
-            cls.__change_buttons = collections.defaultdict(set)
-
-        def setup_field(field, field_name):
-            for attribute in ('on_change', 'on_change_with', 'autocomplete',
-                    'selection_change_with'):
-                if attribute == 'selection_change_with':
-                    if isinstance(
-                            getattr(field, 'selection', None), basestring):
-                        function_name = field.selection
-                    else:
-                        continue
-                else:
-                    function_name = '%s_%s' % (attribute, field_name)
-                if not getattr(cls, function_name, None):
-                    continue
-                # Search depends on all parent class because field has been
-                # copied with the original definition
-                for parent_cls in cls.__mro__:
-                    function = getattr(parent_cls, function_name, None)
-                    if not function:
-                        continue
-                    if getattr(function, 'depends', None):
-                        setattr(field, attribute,
-                            getattr(field, attribute) | function.depends)
-                    if getattr(function, 'depend_methods', None):
-                        cls.__depend_methods[(field_name, attribute)] |= \
-                            function.depend_methods
-                function = getattr(cls, function_name, None)
-                if (attribute == 'on_change'
-                        and not getattr(function, 'on_change', None)):
-                    # Decorate on_change to always return self
-                    setattr(cls, function_name, on_change(function))
-
-        def setup_callable(function, name):
-            if hasattr(function, 'change'):
-                cls.__change_buttons[name] |= function.change
-
+        fields_ = {}
+        callables = {}
         for name in dir(cls):
+            if name.startswith('__'):
+                continue
             attr = getattr(cls, name)
             if isinstance(attr, fields.Field):
-                setup_field(attr, name)
-            elif isinstance(attr, collections.Callable):
-                setup_callable(attr, name)
+                fields_[name] = attr
+            elif callable(attr):
+                callables[name] = attr
+
+        methods = {
+            'depends': collections.defaultdict(set),
+            'depend_methods': collections.defaultdict(set),
+            'change': collections.defaultdict(set),
+            }
+        cls.__change_buttons = methods['change']
+
+        def get_callable_attributes(name, method):
+            for parent_cls in cls.__mro__:
+                parent_meth = getattr(parent_cls, name, None)
+                if not parent_meth:
+                    continue
+                for attr in ['depends', 'depend_methods', 'change']:
+                    parent_value = getattr(parent_meth, attr, None)
+                    if parent_value:
+                        methods[attr][name] |= parent_value
+
+        for name, method in callables.items():
+            get_callable_attributes(name, method)
+
+        def setup_field(field_name, field, attribute):
+            if attribute == 'selection_change_with':
+                if isinstance(
+                        getattr(field, 'selection', None), str):
+                    function_name = field.selection
+                else:
+                    return
+            else:
+                function_name = '%s_%s' % (attribute, field_name)
+            if not getattr(cls, function_name, None):
+                return
+
+            function = getattr(cls, function_name, None)
+            setattr(field, attribute,
+                getattr(field, attribute) | methods['depends'][function_name])
+
+            meth_names = list(methods['depend_methods'][function_name])
+            meth_done = set()
+            while meth_names:
+                meth_name = meth_names.pop()
+                assert callable(getattr(cls, meth_name)), \
+                    "%s.%s not callable" % (cls, meth_name)
+                setattr(field, attribute,
+                    getattr(field, attribute) | methods['depends'][meth_name])
+                meth_names += list(
+                    methods['depend_methods'][meth_name] - meth_done)
+                meth_done.add(meth_name)
+
+            if (attribute == 'on_change'
+                    and not getattr(function, 'on_change', None)):
+                # Decorate on_change to always return self
+                setattr(cls, function_name, on_change(function))
+
+        for name, field in fields_.items():
+            for attribute in [
+                    'on_change',
+                    'on_change_with',
+                    'autocomplete',
+                    'selection_change_with',
+                    ]:
+                setup_field(name, field, attribute)
 
     @classmethod
     def __post_setup__(cls):
         super(ModelView, cls).__post_setup__()
 
         # Update __rpc__
-        for field_name, field in cls._fields.iteritems():
-            if (isinstance(field, (fields.Selection, fields.Reference))
-                    or (isinstance(field, fields.Function)
-                        and isinstance(field._field,
-                            (fields.Selection, fields.Reference)))) \
-                    and not isinstance(field.selection, (list, tuple)) \
-                    and field.selection not in cls.__rpc__:
-                instantiate = 0 if field.selection_change_with else None
-                cls.__rpc__.setdefault(field.selection,
-                    RPC(instantiate=instantiate))
-
-            for attribute in ('on_change', 'on_change_with', 'autocomplete'):
-                function_name = '%s_%s' % (attribute, field_name)
-                if getattr(cls, function_name, None):
-                    result = None
-                    if attribute == 'on_change':
-                        result = on_change_result
-                    cls.__rpc__.setdefault(function_name,
-                        RPC(instantiate=0, result=result))
+        for field_name, field in cls._fields.items():
+            field.set_rpc(cls)
 
         for button in cls._buttons:
             if not is_instance_method(cls, button):
@@ -206,15 +208,12 @@ class ModelView(Model):
                 cls.__rpc__.setdefault(button,
                     RPC(instantiate=0, result=on_change_result))
 
-        # Update depend on methods
-        for (field_name, attribute), others in (
-                cls.__depend_methods.iteritems()):
-            field = getattr(cls, field_name)
-            for other in others:
-                other_field = getattr(cls, other)
-                setattr(field, attribute,
-                    getattr(field, attribute)
-                    | getattr(other_field, attribute))
+            for parent_cls in cls.__mro__:
+                parent_meth = getattr(parent_cls, button, None)
+                if not parent_meth:
+                    continue
+                cls.__change_buttons[button] |= getattr(
+                    parent_meth, 'change', set())
 
     @classmethod
     def fields_view_get(cls, view_id=None, view_type='form'):
@@ -251,14 +250,13 @@ class ModelView(Model):
                     ],
                 ]
             views = View.search(domain)
-            views = filter(lambda v: v.rng_type == view_type, views)
+            views = [v for v in views if v.rng_type == view_type]
             if views:
                 view = views[0]
         if view:
             if view.inherit:
                 inherit_view_id = view.id
                 view = view.inherit
-            view_id = view.id
 
         # if a view was found
         if view:
@@ -270,17 +268,18 @@ class ModelView(Model):
             # Check if view is not from an inherited model
             if view.model != cls.__name__:
                 Inherit = pool.get(view.model)
-                result['arch'] = Inherit.fields_view_get(
-                        result['view_id'])['arch']
-                view_id = inherit_view_id
+                result['arch'] = Inherit.fields_view_get(view.id)['arch']
+                real_view_id = inherit_view_id
+            else:
+                real_view_id = view.id
 
             # get all views which inherit from (ie modify) this view
             views = View.search([
                     'OR', [
-                        ('inherit', '=', view_id),
+                        ('inherit', '=', real_view_id),
                         ('model', '=', cls.__name__),
                         ], [
-                        ('id', '=', view_id),
+                        ('id', '=', real_view_id),
                         ('inherit', '!=', None),
                         ],
                     ])
@@ -315,7 +314,7 @@ class ModelView(Model):
             if view_type == 'form':
                 res = cls.fields_get()
                 xml = '''<?xml version="1.0"?>''' \
-                    '''<form string="%s" col="4">''' % (cls.__doc__,)
+                    '''<form col="4">'''
                 for i in res:
                     if i in ('create_uid', 'create_date',
                             'write_uid', 'write_date', 'id', 'rec_name'):
@@ -333,14 +332,14 @@ class ModelView(Model):
                 if cls._rec_name in cls._fields:
                     field = cls._rec_name
                 xml = '''<?xml version="1.0"?>''' \
-                    '''<tree string="%s"><field name="%s"/></tree>''' \
-                    % (cls.__doc__, field)
+                    '''<tree><field name="%s"/></tree>''' \
+                    % (field,)
             else:
                 xml = ''
             result['type'] = view_type
             result['arch'] = xml
             result['field_childs'] = None
-            result['view_id'] = 0
+            result['view_id'] = view_id
 
         # Update arch and compute fields from arch
         parser = etree.XMLParser(remove_blank_text=True)
@@ -426,18 +425,6 @@ class ModelView(Model):
         return result
 
     @classmethod
-    def view_header_get(cls, value, view_type='form'):
-        """
-        Overload this method if you need a window title.
-        which depends on the context
-
-        :param value: the default header string
-        :param view_type: the type of the view
-        :return: the header string of the view
-        """
-        return value
-
-    @classmethod
     def view_attributes(cls):
         'Return a list of xpath, attribute name and value'
         return []
@@ -458,36 +445,56 @@ class ModelView(Model):
 
         # Find field without read access
         fread_accesses = FieldAccess.check(cls.__name__,
-                cls._fields.keys(), 'read', access=True)
-        fields_to_remove = list(x for x, y in fread_accesses.iteritems()
-                if not y)
+                list(cls._fields.keys()), 'read', access=True)
+        fields_to_remove = set(
+            x for x, y in fread_accesses.items() if not y)
 
         # Find relation field without read access
-        for name, field in cls._fields.iteritems():
+        for name, field in cls._fields.items():
             if not ModelAccess.check_relation(cls.__name__, name, mode='read'):
-                fields_to_remove.append(name)
+                fields_to_remove.add(name)
 
-        for name, field in cls._fields.iteritems():
-            for field_to_remove in fields_to_remove:
-                if field_to_remove in field.depends:
-                    fields_to_remove.append(name)
+        checked = set()
+        while checked < fields_to_remove:
+            to_check = fields_to_remove - checked
+            for name, field in cls._fields.items():
+                for field_to_remove in to_check:
+                    if field_to_remove in field.depends:
+                        fields_to_remove.add(name)
+            checked |= to_check
 
-        # Remove field without read access
-        for field in fields_to_remove:
-            xpath = ('//field[@name="%(field)s"] | //label[@name="%(field)s"]'
-                ' | //page[@name="%(field)s"] | //group[@name="%(field)s"]'
-                ' | //separator[@name="%(field)s"]') % {'field': field}
-            for i, element in enumerate(tree.xpath(xpath)):
-                if type == 'tree' or element.tag == 'page':
-                    parent = element.getparent()
-                    parent.remove(element)
-                elif type == 'form':
-                    element.tag = 'label'
-                    colspan = element.attrib.get('colspan')
-                    element.attrib.clear()
-                    element.attrib['id'] = 'hidden %s-%s' % (field, i)
-                    if colspan is not None:
-                        element.attrib['colspan'] = colspan
+        buttons_to_remove = set()
+        for name, definition in cls._buttons.items():
+            if fields_to_remove & set(definition.get('depends', [])):
+                buttons_to_remove.add(name)
+
+        field_xpath = ('//field[@name="%(name)s"]'
+            '| //label[@name="%(name)s"] | //page[@name="%(name)s"]'
+            '| //group[@name="%(name)s"] | //separator[@name="%(name)s"]')
+        button_xpath = '//button[@name="%(name)s"]'
+        # Remove field and button without read acces
+        for xpath, names in (
+                (field_xpath, fields_to_remove),
+                (button_xpath, buttons_to_remove),
+                ):
+            for name in names:
+                path = xpath % {'name': name}
+                for i, element in enumerate(tree.xpath(path)):
+                    if type == 'tree' or element.tag == 'page':
+                        parent = element.getparent()
+                        parent.remove(element)
+                    elif type == 'form':
+                        element.tag = 'label'
+                        colspan = element.attrib.get('colspan')
+                        element.attrib.clear()
+                        element.attrib['id'] = 'hidden %s-%s' % (name, i)
+                        if colspan is not None:
+                            element.attrib['colspan'] = colspan
+
+        # Remove empty pages
+        if type == 'form':
+            for page in tree.xpath('//page[not(descendant::*)]'):
+                page.getparent().remove(page)
 
         if type == 'tree':
             ViewTreeWidth = pool.get('ir.ui.view_tree_width')
@@ -502,6 +509,9 @@ class ModelView(Model):
         fields_def = cls.__view_look_dom(tree_root, type,
                 fields_width=fields_width)
 
+        if hasattr(cls, 'active'):
+            fields_def.setdefault('active', {'name': 'active'})
+
         if field_children:
             fields_def.setdefault(field_children, {'name': field_children})
             if field_children in cls._fields:
@@ -509,7 +519,7 @@ class ModelView(Model):
                 if hasattr(field, 'field'):
                     fields_def.setdefault(field.field, {'name': field.field})
 
-        for field_name in fields_def.keys():
+        for field_name in list(fields_def.keys()):
             if field_name in cls._fields:
                 field = cls._fields[field_name]
             else:
@@ -517,12 +527,13 @@ class ModelView(Model):
             for depend in field.depends:
                 fields_def.setdefault(depend, {'name': depend})
 
-        if 'active' in cls._fields:
-            fields_def.setdefault('active', {'name': 'active'})
-
         arch = etree.tostring(
             tree, encoding='utf-8', pretty_print=False).decode('utf-8')
-        fields2 = cls.fields_get(fields_def.keys())
+        # Do not call fields_def without fields as it returns all fields
+        if fields_def:
+            fields2 = cls.fields_get(list(fields_def.keys()))
+        else:
+            fields2 = {}
         for field in fields_def:
             if field in fields2:
                 fields2[field].update(fields_def[field])
@@ -534,6 +545,7 @@ class ModelView(Model):
         pool = Pool()
         Translation = pool.get('ir.translation')
         ModelData = pool.get('ir.model.data')
+        ModelAccess = pool.get('ir.model.access')
         Button = pool.get('ir.model.button')
         User = pool.get('res.user')
 
@@ -636,11 +648,23 @@ class ModelView(Model):
             else:
                 states = {}
             groups = set(User.get_groups())
+            button_attr = Button.get_view_attributes(
+                cls.__name__, button_name)
+            for attr, value in button_attr.items():
+                if not element.get(attr):
+                    element.set(attr, value or '')
             button_groups = Button.get_groups(cls.__name__, button_name)
-            if button_groups and not groups & button_groups:
+            if ((button_groups and not groups & button_groups)
+                    or (not button_groups
+                        and not ModelAccess.check(
+                            cls.__name__, 'write', raise_exception=False))):
                 states = states.copy()
                 states['readonly'] = True
             element.set('states', encoder.encode(states))
+
+            button_rules = Button.get_rules(cls.__name__, button_name)
+            if button_rules:
+                element.set('rule', '1')
 
             change = cls.__change_buttons[button_name]
             if change:
@@ -650,8 +674,11 @@ class ModelView(Model):
             else:
                 element.set('type', 'instance')
 
+            for depend in states.get('depends', []):
+                fields_attrs.setdefault(depend, {})
+
         # translate view
-        if Transaction().language != 'en_US':
+        if Transaction().language != 'en':
             for attr in ('string', 'sum', 'confirm', 'help'):
                 if element.get(attr):
                     trans = Translation.get_source(cls.__name__, 'view',
@@ -659,16 +686,11 @@ class ModelView(Model):
                     if trans:
                         element.set(attr, trans)
 
-        # Set header string
-        if element.tag in ('form', 'tree', 'graph'):
-            element.set('string', cls.view_header_get(
-                element.get('string') or '', view_type=element.tag))
-
         if element.tag == 'tree' and element.get('sequence'):
             fields_attrs.setdefault(element.get('sequence'), {})
 
         if element.tag == 'calendar':
-            for attr in ('dtstart', 'dtend'):
+            for attr in ['dtstart', 'dtend', 'color', 'background_color']:
                 if element.get(attr):
                     fields_attrs.setdefault(element.get(attr), {})
 
@@ -699,24 +721,46 @@ class ModelView(Model):
     @staticmethod
     def button(func):
         @wraps(func)
-        def wrapper(cls, *args, **kwargs):
+        def wrapper(cls, records, *args, **kwargs):
             pool = Pool()
             ModelAccess = pool.get('ir.model.access')
             Button = pool.get('ir.model.button')
+            ButtonClick = pool.get('ir.model.button.click')
             User = pool.get('res.user')
 
-            if ((Transaction().user != 0)
-                    and Transaction().context.get('_check_access')):
+            transaction = Transaction()
+            check_access = transaction.context.get('_check_access')
+
+            assert len(records) == len(set(records)), "Duplicate records"
+
+            if (transaction.user != 0) and check_access:
                 ModelAccess.check(cls.__name__, 'read')
-                ModelAccess.check(cls.__name__, 'write')
                 groups = set(User.get_groups())
                 button_groups = Button.get_groups(cls.__name__,
                     func.__name__)
-                if button_groups and not groups & button_groups:
-                    raise UserError('Calling button %s on %s is not allowed!'
-                        % (func.__name__, cls.__name__))
+                if button_groups:
+                    if not groups & button_groups:
+                        raise UserError(
+                            'Calling button %s on %s is not allowed!'
+                            % (func.__name__, cls.__name__))
+                else:
+                    ModelAccess.check(cls.__name__, 'write')
+
             with Transaction().set_context(_check_access=False):
-                return func(cls, *args, **kwargs)
+                if (transaction.user != 0) and check_access:
+                    button_rules = Button.get_rules(
+                        cls.__name__, func.__name__)
+                    if button_rules:
+                        clicks = ButtonClick.register(
+                            cls.__name__, func.__name__, records)
+                        records = [r for r in records
+                            if all(br.test(r, clicks.get(r.id, []))
+                                for br in button_rules)]
+                # Reset click after filtering in case the button also has rules
+                names = Button.get_reset(cls.__name__, func.__name__)
+                if names:
+                    ButtonClick.reset(cls.__name__, names, records)
+                return func(cls, records, *args, **kwargs)
         return wrapper
 
     @staticmethod
@@ -742,7 +786,6 @@ class ModelView(Model):
     @staticmethod
     def button_change(*fields):
         def decorator(func):
-            func = ModelView.button(func)
             func = on_change(func)
             func.change = set(fields)
             return func
@@ -783,7 +826,7 @@ class ModelView(Model):
         init_values = self._init_values or {}
         if not self._values:
             return changed
-        for fname, value in self._values.iteritems():
+        for fname, value in self._values.items():
             field = self._fields[fname]
             # Always test key presence in case value is None
             if (fname in init_values
@@ -803,22 +846,35 @@ class ModelView(Model):
                         value = value.id
             elif field._type == 'one2many':
                 targets = value
-                init_targets = list(init_values.get(fname, []))
+                init_targets = list(init_values.get(fname, targets))
                 value = collections.defaultdict(list)
                 value['remove'] = [t.id for t in init_targets if t.id]
                 for i, target in enumerate(targets):
                     if target.id in value['remove']:
                         value['remove'].remove(target.id)
-                        target_changed = target._changed_values
-                        if target_changed:
-                            target_changed['id'] = target.id
-                            value['update'].append(target_changed)
+                        if isinstance(target, ModelView):
+                            target_changed = target._changed_values
+                            if target_changed:
+                                target_changed['id'] = target.id
+                                value['update'].append(target_changed)
                     else:
-                        value['add'].append((i, target._default_values))
+                        if isinstance(target, ModelView):
+                            # Ensure initial values are returned because target
+                            # was instantiated on server side.
+                            target_init_values = target._init_values
+                            target._init_values = None
+                            try:
+                                added_values = target._changed_values
+                            finally:
+                                target._init_values = target_init_values
+                        else:
+                            added_values = target._default_values
+                        value['add'].append((i, added_values))
                 if not value['remove']:
                     del value['remove']
                 if not value:
                     continue
+                value = dict(value)
             elif field._type == 'many2many':
                 value = [r.id for r in value]
             changed[fname] = value

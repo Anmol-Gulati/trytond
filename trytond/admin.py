@@ -10,6 +10,7 @@ from sql import Table
 from trytond.transaction import Transaction
 from trytond import backend
 from trytond.pool import Pool
+from trytond.config import config
 
 __all__ = ['run']
 logger = logging.getLogger(__name__)
@@ -17,10 +18,11 @@ logger = logging.getLogger(__name__)
 
 def run(options):
     Database = backend.get('Database')
+    main_lang = config.get('database', 'language')
     init = {}
     for db_name in options.database_names:
         init[db_name] = False
-        with Transaction().start(db_name, 0):
+        with Transaction().start(db_name, 0, _nocache=True):
             database = Database(db_name)
             database.connect()
             if options.update:
@@ -29,7 +31,7 @@ def run(options):
                     database.init()
                     init[db_name] = True
             elif not database.test():
-                raise Exception("'%s' is not a Tryton database!" % db_name)
+                raise Exception('"%s" is not a Tryton database.' % db_name)
 
     for db_name in options.database_names:
         if options.update:
@@ -38,46 +40,81 @@ def run(options):
                 database = Database(db_name)
                 database.connect()
                 if not database.test():
-                    raise Exception("'%s' is not a Tryton database!" % db_name)
+                    raise Exception('"%s" is not a Tryton database.' % db_name)
                 lang = Table('ir_lang')
                 cursor.execute(*lang.select(lang.code,
                         where=lang.translatable == True))
-                lang = [x[0] for x in cursor.fetchall()]
+                lang = set([x[0] for x in cursor.fetchall()])
+            lang.add(main_lang)
         else:
-            lang = None
-        Pool(db_name).init(update=options.update, lang=lang)
+            lang = set()
+        lang |= set(options.languages)
+        pool = Pool(db_name)
+        pool.init(update=options.update, lang=list(lang),
+            activatedeps=options.activatedeps)
 
-    for db_name in options.database_names:
-        if init[db_name]:
-            # try to read password from environment variable
-            # TRYTONPASSFILE, empty TRYTONPASSFILE ignored
-            passpath = os.getenv('TRYTONPASSFILE')
-            password = ''
-            if passpath:
-                try:
-                    with open(passpath) as passfile:
-                        password = passfile.readline()[:-1]
-                except Exception, err:
-                    sys.stderr.write('Can not read password '
-                        'from "%s": "%s"\n' % (passpath, err))
+        if options.update_modules_list:
+            with Transaction().start(db_name, 0) as transaction:
+                Module = pool.get('ir.module')
+                Module.update_list()
 
-            if not password:
-                while True:
-                    password = getpass('Admin Password for %s: ' % db_name)
-                    password2 = getpass('Admin Password Confirmation: ')
-                    if password != password2:
-                        sys.stderr.write('Admin Password Confirmation '
-                            'doesn\'t match Admin Password!\n')
-                        continue
-                    if not password:
-                        sys.stderr.write('Admin Password is required!\n')
-                        continue
-                    break
-
+        if lang:
             with Transaction().start(db_name, 0) as transaction:
                 pool = Pool()
-                User = pool.get('res.user')
-                admin, = User.search([('login', '=', 'admin')])
-                User.write([admin], {
-                        'password': password,
+                Lang = pool.get('ir.lang')
+                languages = Lang.search([
+                        ('code', 'in', lang),
+                        ])
+                Lang.write(languages, {
+                        'translatable': True,
                         })
+
+    for db_name in options.database_names:
+        with Transaction().start(db_name, 0) as transaction:
+            pool = Pool()
+            User = pool.get('res.user')
+            Configuration = pool.get('ir.configuration')
+            configuration = Configuration(1)
+            with transaction.set_context(active_test=False):
+                admin, = User.search([('login', '=', 'admin')])
+
+            if options.email is not None:
+                admin.email = options.email
+            elif init[db_name]:
+                admin.email = input(
+                    '"admin" email for "%s": ' % db_name)
+            if init[db_name] or options.password:
+                configuration.language = main_lang
+                # try to read password from environment variable
+                # TRYTONPASSFILE, empty TRYTONPASSFILE ignored
+                passpath = os.getenv('TRYTONPASSFILE')
+                password = ''
+                if passpath:
+                    try:
+                        with open(passpath) as passfile:
+                            password, = passfile.read().splitlines()
+                    except Exception as err:
+                        sys.stderr.write('Can not read password '
+                            'from "%s": "%s"\n' % (passpath, err))
+
+                if not password and not options.reset_password:
+                    while True:
+                        password = getpass(
+                            '"admin" password for "%s": ' % db_name)
+                        password2 = getpass('"admin" password confirmation: ')
+                        if password != password2:
+                            sys.stderr.write('"admin" password confirmation '
+                                'doesn\'t match "admin" password.\n')
+                            continue
+                        if not password:
+                            sys.stderr.write('"admin" password is required.\n')
+                            continue
+                        break
+                if not options.reset_password:
+                    admin.password = password
+            admin.save()
+            if options.reset_password:
+                User.reset_password([admin])
+            if options.hostname is not None:
+                configuration.hostname = options.hostname or None
+            configuration.save()

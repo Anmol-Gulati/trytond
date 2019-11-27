@@ -1,6 +1,6 @@
 # This file is part of Tryton.  The COPYRIGHT file at the top level of
 # this repository contains the full copyright notices and license terms.
-import xmlrpclib as client
+import xmlrpc.client as client
 import datetime
 import logging
 
@@ -9,7 +9,7 @@ from decimal import Decimal
 
 from werkzeug.wrappers import Response
 from werkzeug.utils import cached_property
-from werkzeug.exceptions import BadRequest
+from werkzeug.exceptions import BadRequest, InternalServerError
 
 from trytond.protocols.wrappers import Request
 from trytond.exceptions import TrytonException
@@ -69,9 +69,9 @@ if bytes == str:
 def dump_struct(self, value, write, escape=client.escape):
     converted_value = {}
     for k, v in value.items():
-        if type(k) in (int, long):
-            k = str(int(k))
-        elif type(k) == float:
+        if isinstance(k, int):
+            k = str(k)
+        elif isinstance(k, float):
             k = repr(k)
         converted_value[k] = v
     return self.dump_struct(converted_value, write, escape=escape)
@@ -131,8 +131,7 @@ def _end_base64(self, data):
     cast = bytearray if bytes == str else bytes
     self.append(cast(value.data))
     self._value = 0
-if bytes == str:
-    client.Unmarshaller.dispatch['base64'] = _end_base64
+client.Unmarshaller.dispatch['base64'] = _end_base64
 
 
 class XMLRequest(Request):
@@ -150,11 +149,11 @@ class XMLRequest(Request):
             raise BadRequest('Not an XML request')
 
     @property
-    def method(self):
+    def rpc_method(self):
         return self.parsed_data[1]
 
     @property
-    def params(self):
+    def rpc_params(self):
         return self.parsed_data[0]
 
 
@@ -167,12 +166,17 @@ class XMLProtocol:
 
     @classmethod
     def response(cls, data, request):
-        if isinstance(data, TrytonException):
-            data = client.Fault(data.code, str(data))
-        elif isinstance(data, Exception):
-            data = client.Fault(255, str(data))
+        if isinstance(request, XMLRequest):
+            if isinstance(data, TrytonException):
+                data = client.Fault(data.code, str(data))
+            elif isinstance(data, Exception):
+                data = client.Fault(255, str(data))
+            else:
+                data = (data,)
+            return Response(client.dumps(
+                    data, methodresponse=True, allow_none=True),
+                content_type='text/xml')
         else:
-            data = (data,)
-        return Response(client.dumps(
-                data, methodresponse=True, allow_none=True),
-            content_type='text/xml')
+            if isinstance(data, Exception):
+                return InternalServerError(data)
+            return Response(data)

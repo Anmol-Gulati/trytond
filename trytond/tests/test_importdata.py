@@ -4,7 +4,7 @@
 import unittest
 from decimal import InvalidOperation
 
-from trytond.tests.test_tryton import install_module, with_transaction
+from trytond.tests.test_tryton import activate_module, with_transaction
 from trytond.transaction import Transaction
 from trytond.pool import Pool
 from trytond.exceptions import UserError
@@ -15,7 +15,7 @@ class ImportDataTestCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        install_module('tests')
+        activate_module('tests')
 
     @with_transaction()
     def test_boolean(self):
@@ -370,10 +370,10 @@ class ImportDataTestCase(unittest.TestCase):
                 'tests.import_data_many2many_target_test2']]), 1)
 
         self.assertEqual(Many2many.import_data(['many2many'],
-            [['Test\, comma']]), 1)
+            [['Test\\, comma']]), 1)
 
         self.assertEqual(Many2many.import_data(['many2many'],
-            [['Test\, comma,Test 1']]), 1)
+            [['Test\\, comma,Test 1']]), 1)
 
         self.assertEqual(Many2many.import_data(['many2many'],
             [['']]), 1)

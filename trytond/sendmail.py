@@ -2,8 +2,9 @@
 # this repository contains the full copyright notices and license terms.
 import logging
 import smtplib
-import urllib
 from email.message import Message
+from email.utils import formatdate
+from urllib.parse import parse_qs, unquote_plus
 
 from .config import config, parse_uri
 from .transaction import Transaction
@@ -29,12 +30,15 @@ def sendmail(from_addr, to_addrs, msg, server=None):
         quit = True
     else:
         quit = False
+    if 'Date' not in msg:
+        msg['Date'] = formatdate()
     try:
         senderrs = server.sendmail(from_addr, to_addrs, msg.as_string())
     except smtplib.SMTPException:
         logger.error('fail to send email', exc_info=True)
-    if senderrs:
-        logger.warn('fail to send email to %s', senderrs)
+    else:
+        if senderrs:
+            logger.warning('fail to send email to %s', senderrs)
     if quit:
         server.quit()
 
@@ -43,18 +47,23 @@ def get_smtp_server(uri=None):
     if uri is None:
         uri = config.get('email', 'uri')
     uri = parse_uri(uri)
+    extra = {}
+    if uri.query:
+        cast = {'timeout': int}
+        for key, value in parse_qs(uri.query, strict_parsing=True).items():
+            extra[key] = cast.get(key, lambda a: a)(value[0])
     if uri.scheme.startswith('smtps'):
-        server = smtplib.SMTP_SSL(uri.hostname, uri.port)
+        server = smtplib.SMTP_SSL(uri.hostname, uri.port, **extra)
     else:
-        server = smtplib.SMTP(uri.hostname, uri.port)
+        server = smtplib.SMTP(uri.hostname, uri.port, **extra)
 
     if 'tls' in uri.scheme:
         server.starttls()
 
     if uri.username and uri.password:
         server.login(
-            urllib.unquote_plus(uri.username),
-            urllib.unquote_plus(uri.password))
+            unquote_plus(uri.username),
+            unquote_plus(uri.password))
     return server
 
 

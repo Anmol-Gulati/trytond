@@ -11,7 +11,11 @@ API Reference
     wizard
     pyson
     transaction
-    tools/singleton
+    tools/index
     pool
     rpc
     sendmail
+    filestore
+    cache
+    bus
+    tests

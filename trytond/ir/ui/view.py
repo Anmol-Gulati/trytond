@@ -1,16 +1,11 @@
 # This file is part of Tryton.  The COPYRIGHT file at the top level of
 # this repository contains the full copyright notices and license terms.
 import os
-import sys
 import logging
-try:
-    import simplejson as json
-except ImportError:
-    import json
+import json
 
 from lxml import etree
 from trytond.model import ModelView, ModelSQL, fields
-from trytond import backend
 from trytond.pyson import Eval, Bool, PYSONDecoder, If
 from trytond.tools import file_open
 from trytond.transaction import Transaction
@@ -79,28 +74,9 @@ class View(ModelSQL, ModelView):
         cls._buttons.update({
                 'show': {
                     'readonly': Eval('type') != 'form',
+                    'depends': ['type'],
                     },
                 })
-
-    @classmethod
-    def __register__(cls, module_name):
-        TableHandler = backend.get('TableHandler')
-        table = TableHandler(cls, module_name)
-
-        # Migration from 2.4 arch moved into data
-        if table.column_exist('arch'):
-            table.column_rename('arch', 'data')
-
-        super(View, cls).__register__(module_name)
-
-        # New instance to refresh definition
-        table = TableHandler(cls, module_name)
-
-        # Migration from 1.0 arch no more required
-        table.not_null_action('arch', action='remove')
-
-        # Migration from 2.4 model no more required
-        table.not_null_action('model', action='remove')
 
     @staticmethod
     def default_priority():
@@ -120,11 +96,7 @@ class View(ModelSQL, ModelView):
         key = (cls.__name__, type_)
         rng = cls._get_rng_cache.get(key)
         if rng is None:
-            if sys.version_info < (3,):
-                filename = __file__.decode(sys.getfilesystemencoding())
-            else:
-                filename = __file__
-            rng_name = os.path.join(os.path.dirname(filename), type_ + '.rng')
+            rng_name = os.path.join(os.path.dirname(__file__), type_ + '.rng')
             with open(rng_name, 'rb') as fp:
                 rng = etree.fromstring(fp.read())
             cls._get_rng_cache.set(key, rng)
@@ -175,7 +147,7 @@ class View(ModelSQL, ModelView):
                     try:
                         value = PYSONDecoder().decode(element.get(attr))
                         validates.get(attr, lambda a: True)(value)
-                    except Exception, e:
+                    except Exception as e:
                         error_log = '%s: <%s %s="%s"/>' % (
                             e, element.get('id') or element.get('name'), attr,
                             element.get(attr))
@@ -243,7 +215,10 @@ class ShowView(Wizard):
         def get_view(self, wizard, state_name):
             pool = Pool()
             View = pool.get('ir.ui.view')
-            view = View(Transaction().context.get('active_id'))
+            view_id = Transaction().context.get('active_id')
+            if not view_id:
+                return {}
+            view = View(view_id)
             Model = pool.get(view.model)
             return Model.fields_view_get(view_id=view.id)
 
@@ -297,12 +272,12 @@ class ViewTreeWidth(ModelSQL, ModelView):
         records = cls.search([
             ('user', '=', Transaction().user),
             ('model', '=', model),
-            ('field', 'in', fields.keys()),
+            ('field', 'in', list(fields.keys())),
             ])
         cls.delete(records)
 
         to_create = []
-        for field in fields.keys():
+        for field in list(fields.keys()):
             to_create.append({
                     'model': model,
                     'field': field,
@@ -335,15 +310,9 @@ class ViewTreeState(ModelSQL, ModelView):
 
     @classmethod
     def __register__(cls, module_name):
-        TableHandler = backend.get('TableHandler')
-        table = TableHandler(cls, module_name)
-
-        # Migration from 2.8: table name changed
-        table.table_rename('ir_ui_view_tree_expanded_state', cls._table)
-
         super(ViewTreeState, cls).__register__(module_name)
 
-        table = TableHandler(cls, module_name)
+        table = cls.__table_handler__(module_name)
         table.index_action(['model', 'domain', 'user', 'child_name'], 'add')
 
     @staticmethod
@@ -357,7 +326,7 @@ class ViewTreeState(ModelSQL, ModelView):
     @classmethod
     def set(cls, model, domain, child_name, nodes, selected_nodes):
         # Normalize the json domain
-        domain = json.dumps(json.loads(domain))
+        domain = json.dumps(json.loads(domain), separators=(',', ':'))
         current_user = Transaction().user
         records = cls.search([
                 ('user', '=', current_user),
@@ -378,7 +347,7 @@ class ViewTreeState(ModelSQL, ModelView):
     @classmethod
     def get(cls, model, domain, child_name):
         # Normalize the json domain
-        domain = json.dumps(json.loads(domain))
+        domain = json.dumps(json.loads(domain), separators=(',', ':'))
         current_user = Transaction().user
         try:
             expanded_info, = cls.search([

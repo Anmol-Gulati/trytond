@@ -14,6 +14,9 @@ class UserError(TrytonException):
         self.description = description
         self.code = 1
 
+    def __str__(self):
+        return '%s - %s' % (self.message, self.description)
+
 
 class UserValueError(UserError):
     '''
@@ -33,6 +36,23 @@ class UserWarning(TrytonException):
         self.description = description
         self.code = 2
 
+    def __str__(self):
+        return '%s - %s' % (self.message, self.description)
+
+
+class LoginException(TrytonException):
+    """Request the named parameter for the login process.
+    The type can be 'password' or 'char'.
+    """
+
+    def __init__(self, name, message, type='password'):
+        super(LoginException, self).__init__(
+            'LoginException', (name, message, type))
+        self.name = name
+        self.message = message
+        self.type = type
+        self.code = 3
+
 
 class ConcurrencyException(TrytonException):
 
@@ -45,6 +65,9 @@ class ConcurrencyException(TrytonException):
         self.write_date = write_date
         self.write_uid = write_uid
 
+    def __str__(self):
+        return self.message
+
 
 class FieldNameError(UserError):
     def __init__(self, field_name):
@@ -52,3 +75,19 @@ class FieldNameError(UserError):
             field_name,
             "Field does not exist or you do not have permission to access."
         )
+
+    def __str__(self):
+        return self.message
+
+
+class RateLimitException(TrytonException):
+    """User has sent too many requests in a given amount of time."""
+
+
+class MissingDependenciesException(TrytonException):
+
+    def __init__(self, missings):
+        self.missings = missings
+
+    def __str__(self):
+        return 'Missing dependencies: %s' % ' '.join(self.missings)

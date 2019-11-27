@@ -41,6 +41,12 @@ If ``True``, the field is not allowed to be empty. Default is ``False``.
 
 If ``True``, the field is not editable in the client. Default is ``False``.
 
+.. warning::
+    For relational fields, it means only the new, delete, add and remove
+    buttons are inactivated. The editable state of the target record must be
+    managed at the target model level.
+
+
 ``domain``
 ----------
 
@@ -165,11 +171,26 @@ Instance methods:
 .. method:: Field.sql_type()
 
     Return the namedtuple('SQLType', 'base type') which defines the SQL type to
-    use for creation and casting.
+    use for creation and casting. Or `None` if the field is not stored in the
+    database.
+
+    sql_type is using the `_sql_type` attribute to compute its return value.
+    The backend is responsible for the computation.
+
+    For the list of supported types by Tryton see 
+    :ref:`backend types <topics-backend_types>`.
+
+.. method:: Field.sql_cast(expression)
+
+    Return the SQL expression with cast with the type of the field.
 
 .. method:: Field.sql_column(table)
 
     Return the Column instance based on table.
+
+.. method:: Field.set_rpc(model)
+
+    Adds to `model` the default RPC instances required by the field.
 
 Default value
 =============
@@ -206,7 +227,7 @@ Depends
 
 A decorator to define the field names on which the decorated method depends.
 The `methods` argument can be used to duplicate the field names from other
-fields. This is usefull if the decorated method calls another method.
+decorated methods. This is useful if the decorated method calls another method.
 
 Field types
 ===========
@@ -263,6 +284,15 @@ A single line string field.
     ComboboxEntry in the client.
     The set of field names could be filled by using the decorator :meth:`depends`.
 
+.. attribute:: Char.search_unaccented
+
+    If this attribute is set to True, ``ilike`` searches will be performed on
+    unaccented strings. The default value is True.
+
+.. warning::
+
+    The database backend must supports unaccented search.
+
 Text
 ----
 
@@ -296,6 +326,8 @@ instance.
     the integer part. The second integer defines the total of numbers in the
     decimal part.
     Integers can be replaced by a :class:`~trytond.pyson.PYSON` statement.
+    If digits is None or any values of the tuple is `None`, no validation on
+    the numbers will be done.
 
 Numeric
 -------
@@ -378,7 +410,7 @@ A binary field. It will be represented in Python by a ``bytes`` instance.
     separated by a dot and its value is the string `size` then the read value
     is the size instead of the content.
 
-:class:`Binary` has one extra optional argument:
+:class:`Binary` has three extra optional arguments:
 
 .. attribute:: Binary.filename
 
@@ -387,6 +419,21 @@ A binary field. It will be represented in Python by a ``bytes`` instance.
     filename is hidden, and the "Open" button is hidden when the widget is set
     to "image").
 
+.. attribute:: Binary.file_id
+
+    Name of the field that holds the `FileStore` identifier. Default value is
+    `None` which means the data is stored in the database. The field must be on
+    the same table and accept `char` values.
+
+.. warning::
+    Switching from database to file-store is supported transparently. But
+    switching from file-store to database is not supported without manually
+    upload to the database all the files.
+
+.. attribute:: Binary.store_prefix
+
+    The prefix to use with the `FileStore`. Default value is `None` which means
+    the database name is used.
 
 Selection
 ---------
@@ -450,7 +497,7 @@ Instance methods:
 Reference
 ---------
 
-.. class:: Reference(string[, selection[, selection_change_with[, \**options]])
+.. class:: Reference(string[, selection[, selection_change_with[, search_order[, search_context[, \**options]]]])
 
 A field that refers to a record of a model. It will be represented in Python by
 a ``str`` instance like this::
@@ -459,7 +506,7 @@ a ``str`` instance like this::
 
 But a ``tuple`` can be used to search or set value.
 
-:class:`Reference` has one extra optional argument:
+:class:`Reference` has three extra optional arguments:
 
 .. attribute:: Reference.selection
 
@@ -467,12 +514,31 @@ But a ``tuple`` can be used to search or set value.
 
 .. attribute:: Reference.selection_change_with
 
-Same like :attr:`Selection.selection_change_with`.
+    Same as :attr:`Selection.selection_change_with`.
+
+.. attribute:: Reference.datetime_field
+
+    Same as :attr:`Many2One.datetime_field`
+
+.. attribute:: Reference.search_order
+
+    Same as :attr:`Many2One.search_order`
+
+.. attribute:: Reference.search_context
+
+    Same as :attr:`Many2One.search_context`
+
+Instance methods:
+
+.. method:: Reference.translated([name])
+
+    Same as :meth:`~Selection.translated` but for the translated name of the
+    target model.
 
 Many2One
 --------
 
-.. class:: Many2One(model_name, string[, left[, right[, ondelete[, datetime_field[, target_search[, \**options]]]]])
+.. class:: Many2One(model_name, string[, left[, right[, ondelete[, datetime_field[, target_search[, search_order[, search_context[, \**options]]]]]]])
 
 A many-to-one relation field.
 
@@ -543,10 +609,23 @@ A many-to-one relation field.
         of records.
     ..
 
+.. attribute:: Many2One.search_order
+
+    A :ref:`PYSON <ref-pyson>` expression defining the default order used to
+    display search results in the clients.
+
+.. attribute:: Many2One.search_context
+
+    A dictionary defining the default context used when searching from the
+    client.
+
+    Beware that ``search_context`` will override the values from the client
+    ``context``.
+
 One2Many
 --------
 
-.. class:: One2Many(model_name, field, string[, add_remove[, order[, datetime_field[, size[, \**options]]]]])
+.. class:: One2Many(model_name, field, string[, add_remove[, order[, datetime_field[, size[, search_order[, search_context[, \**options]]]]]]])
 
 A one-to-many relation field. It requires to have the opposite
 :class:`Many2One` field or a :class:`Reference` field defined on the target
@@ -571,6 +650,15 @@ This field accepts as written value a list of tuples like this:
       ids to this record. Optional field names and values may be added to
       override some of the fields of the copied records.
 
+.. note::
+
+    :class:`~trytond.pyson.PYSON` statement or :attr:`Field.depends` of target
+    records can access value of the parent record fields by prepending
+    ``_parent_`` to the opposite field name and followed by the dotted
+    notation.
+
+..
+
 :class:`One2Many` has some extra required arguments:
 
 .. attribute:: One2Many.model_name
@@ -590,6 +678,11 @@ This field accepts as written value a list of tuples like this:
     client will allow to add/remove existing records instead of only
     create/delete.
 
+.. attribute:: One2Many.filter
+
+    A :ref:`domain <topics-domain>` that is not a constraint but only a
+    filter on the records.
+
 .. attribute:: One2Many.order
 
     A list of tuple defining the default order of the records like for
@@ -604,10 +697,18 @@ This field accepts as written value a list of tuples like this:
     An integer or a PYSON expression denoting the maximum number of records
     allowed in the relation.
 
+.. attribute:: One2Many.search_order
+
+    Same as :attr:`Many2One.search_order`
+
+.. attribute:: One2Many.search_context
+
+    Same as :attr:`Many2One.search_context`
+
 Many2Many
 ---------
 
-.. class:: Many2Many(relation_name, origin, target, string[, order[, datetime_field[, size[, \**options]]]])
+.. class:: Many2Many(relation_name, origin, target, string[, order[, datetime_field[, size[, search_order[, search_context[, \**options]]]]]])
 
 A many-to-many relation field. It requires to have the opposite origin
 :class:`Many2One` field or a:class:`Reference` field defined on the relation
@@ -658,11 +759,23 @@ This field accepts as written value a list of tuples like the :class:`One2Many`.
 
     An alias to the :attr:`domain` for compatibility with the :class:`One2Many`.
 
+.. attribute:: Many2Many.filter
+
+    Same as :attr:`One2Many.filter`
+
 Instance methods:
 
 .. method:: Many2Many.get_target()
 
     Return the target :class:`~trytond.model.Model`.
+
+.. attribute:: Many2Many.search_order
+
+    Same as :attr:`Many2One.search_order`
+
+.. attribute:: Many2Many.search_context
+
+    Same as :attr:`Many2One.search_context`
 
 One2One
 -------
@@ -679,6 +792,10 @@ A one-to-one relation field.
 .. attribute:: One2One.datetime_field
 
     Same as :attr:`Many2One.datetime_field`
+
+.. attribute:: One2One.filter
+
+    Same as :attr:`One2Many.filter`
 
 Instance methods:
 
@@ -727,9 +844,12 @@ A function field can emulate any other given `field`.
     the value.
     The signature of the method id::
 
-        setter(ids, name, value)
+        setter(instances, name, value)
 
     where `name` is the name of the field and `value` the value to set.
+
+.. warning::
+    The modifications made to instances will not be saved automatically.
 
 .. attribute:: Function.searcher
 
@@ -764,29 +884,25 @@ Instance methods:
     :class:`~trytond.model.Model` instance of the field, `name` is the name of
     the field, `clause` is a clause of :ref:`domain <topics-domain>`.
 
-Property
---------
+MultiValue
+----------
 
-.. class:: Property(field)
+.. class:: MultiValue(field)
 
-A property field that is like a :class:`Function` field but with predifined
-:attr:`~Function.getter`, :attr:`~Function.setter` and
-:attr:`~Function.searcher` that use the :class:`~trytond.model.ModelSQL`
-`ir.property` to store values.
+A multivalue field that is like a :class:`Function` field but with predefined
+:attr:`~Function.getter` and :attr:`~Function.setter` that use the
+:class:`~trytond.model.MultiValueMixin` for stored values.
 
-Instance methods:
+.. warning::
+    The :meth:`~trytond.model.MultiValueMixin.get_multivalue` and
+    :meth:`~trytond.model.MultiValueMixin.set_multivalue` should be prefered
+    over the descriptors of the field.
+..
 
-.. method:: Property.get(ids, model, name[, values])
-
-    Same as :meth:`Function.get`.
-
-.. method:: Property.set(ids, model, name, value)
-
-    Same as :meth:`Function.set`.
-
-.. method:: Property.search(model, name, clause)
-
-    Same as :meth:`Function.search`.
+.. warning::
+    The :ref:`default <topics-fields_default_value>` method of the field must
+    accept pattern as keyword argument.
+..
 
 Dict
 ----
@@ -794,6 +910,10 @@ Dict
 .. class:: Dict(schema_model[, \**options])
 
 A dictionary field with predefined keys.
+
+.. note::
+    It is possible to store the dict as JSON in the database if the backend
+    supports by manually altering the column type to JSON on the database.
 
 :class:`Dict` has one extra required argument:
 

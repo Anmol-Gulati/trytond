@@ -5,11 +5,13 @@
 import unittest
 import doctest
 import datetime
+import sys
+
 import sql
 import sql.operators
 
 from trytond.tools import reduce_ids, datetime_strftime, \
-    reduce_domain, decimal_, is_instance_method
+    reduce_domain, decimal_, is_instance_method, file_open
 
 
 class ToolsTestCase(unittest.TestCase):
@@ -22,26 +24,26 @@ class ToolsTestCase(unittest.TestCase):
 
     def test_reduce_ids_continue(self):
         'Test reduce_ids continue list'
-        self.assertEqual(reduce_ids(self.table.id, range(10)),
+        self.assertEqual(reduce_ids(self.table.id, list(range(10))),
             sql.operators.Or(((self.table.id >= 0) & (self.table.id <= 9),)))
 
     def test_reduce_ids_one_hole(self):
         'Test reduce_ids continue list with one hole'
-        self.assertEqual(reduce_ids(self.table.id, range(10) + range(20, 30)),
+        self.assertEqual(reduce_ids(self.table.id, list(range(10)) + list(range(20, 30))),
             ((self.table.id >= 0) & (self.table.id <= 9))
             | ((self.table.id >= 20) & (self.table.id <= 29)))
 
     def test_reduce_ids_short_continue(self):
         'Test reduce_ids short continue list'
-        self.assertEqual(reduce_ids(self.table.id, range(4)),
-            sql.operators.Or((self.table.id.in_(range(4)),)))
+        self.assertEqual(reduce_ids(self.table.id, list(range(4))),
+            sql.operators.Or((self.table.id.in_(list(range(4))),)))
 
     def test_reduce_ids_complex(self):
         'Test reduce_ids complex list'
         self.assertEqual(reduce_ids(self.table.id,
-                range(10) + range(25, 30) + range(15, 20)),
+                list(range(10)) + list(range(25, 30)) + list(range(15, 20))),
             (((self.table.id >= 0) & (self.table.id <= 14))
-                | (self.table.id.in_(range(25, 30)))))
+                | (self.table.id.in_(list(range(25, 30))))))
 
     def test_reduce_ids_complex_small_continue(self):
         'Test reduce_ids complex list with small continue'
@@ -50,6 +52,7 @@ class ToolsTestCase(unittest.TestCase):
             (((self.table.id >= 1) & (self.table.id <= 12))
                 | (self.table.id.in_([15, 18, 19, 21]))))
 
+    @unittest.skipIf(sys.flags.optimize, "assert removed by optimization")
     def test_reduce_ids_float(self):
         'Test reduce_ids with integer as float'
         self.assertEqual(reduce_ids(self.table.id,
@@ -61,10 +64,16 @@ class ToolsTestCase(unittest.TestCase):
 
     def test_datetime_strftime(self):
         'Test datetime_strftime'
-        self.assert_(datetime_strftime(datetime.date(2005, 3, 2),
+        self.assertTrue(datetime_strftime(datetime.date(2005, 3, 2),
             '%Y-%m-%d'), '2005-03-02')
-        self.assert_(datetime_strftime(datetime.date(1805, 3, 2),
+        self.assertTrue(datetime_strftime(datetime.date(1805, 3, 2),
             '%Y-%m-%d'), '1805-03-02')
+        self.assertTrue(datetime_strftime(datetime.datetime(2005, 3, 2, 0, 0, 0),
+            '%Y-%m-%d'), '2005-03-02')
+        with self.assertRaises(TypeError):
+            datetime_strftime(None, '%Y-%m-%d')
+        with self.assertRaises(TypeError):
+            datetime_strftime(2, '%Y-%m-%d')
 
     def test_reduce_domain(self):
         'Test reduce_domain'
@@ -113,6 +122,31 @@ class ToolsTestCase(unittest.TestCase):
         self.assertFalse(is_instance_method(Foo, 'static'))
         self.assertFalse(is_instance_method(Foo, 'klass'))
         self.assertTrue(is_instance_method(Foo, 'instance'))
+
+    def test_file_open(self):
+        "Test file_open"
+        with file_open('__init__.py', subdir=None) as fp:
+            self.assertTrue(fp)
+
+        with file_open('ir/__init__.py') as fp:
+            self.assertTrue(fp)
+
+        with self.assertRaisesRegex(IOError, "File not found :"):
+            with file_open('ir/noexist'):
+                pass
+
+        with self.assertRaisesRegex(IOError, "Permission denied:"):
+            with file_open('/etc/passwd'):
+                pass
+
+        with self.assertRaisesRegex(IOError, "Permission denied:"):
+            with file_open('../../foo'):
+                pass
+
+    def test_file_open_suffix(self):
+        "Test file_open from same root name but with a suffix"
+        with self.assertRaisesRegex(IOError, "Permission denied:"):
+            file_open('../trytond_suffix', subdir=None)
 
 
 def suite():

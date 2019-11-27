@@ -2,10 +2,10 @@
 # this repository contains the full copyright notices and license terms.
 from string import Template
 import time
-from itertools import izip
-from sql import Flavor
 
-from ..model import ModelView, ModelSQL, fields, Check
+from sql import Literal, For
+
+from ..model import ModelView, ModelSQL, DeactivableMixin, fields, Check
 from ..tools import datetime_strftime
 from ..pyson import Eval, And
 from ..transaction import Transaction
@@ -16,7 +16,7 @@ __all__ = [
     'SequenceType', 'Sequence', 'SequenceStrict',
     ]
 
-sql_sequence = backend.name() == 'postgresql'
+sql_sequence = backend.get('Database').has_sequence()
 
 
 class SequenceType(ModelSQL, ModelView):
@@ -27,7 +27,7 @@ class SequenceType(ModelSQL, ModelView):
     code = fields.Char('Sequence Code', required=True)
 
 
-class Sequence(ModelSQL, ModelView):
+class Sequence(DeactivableMixin, ModelSQL, ModelView):
     "Sequence"
     __name__ = 'ir.sequence'
 
@@ -37,7 +37,6 @@ class Sequence(ModelSQL, ModelView):
         states={
             'readonly': Eval('context', {}).contains('code'),
             })
-    active = fields.Boolean('Active')
     prefix = fields.Char('Prefix')
     suffix = fields.Char('Suffix')
     type = fields.Selection([
@@ -100,30 +99,6 @@ class Sequence(ModelSQL, ModelView):
                     'future on sequence "%s".'),
                 })
 
-    @classmethod
-    def __register__(cls, module_name):
-        TableHandler = backend.get('TableHandler')
-        table = TableHandler(cls, module_name)
-
-        # Migration from 2.0 rename number_next into number_next_internal
-        table.column_rename('number_next', 'number_next_internal')
-
-        super(Sequence, cls).__register__(module_name)
-
-        # Migration from 2.0 create sql_sequence
-        if sql_sequence and not cls._strict:
-            sequences = cls.search([])
-            for sequence in sequences:
-                if sequence.type != 'incremental':
-                    continue
-                if not TableHandler.sequence_exist(
-                        sequence._sql_sequence_name):
-                    sequence.create_sql_sequence(sequence.number_next_internal)
-
-    @staticmethod
-    def default_active():
-        return True
-
     @staticmethod
     def default_type():
         return 'incremental'
@@ -159,35 +134,11 @@ class Sequence(ModelSQL, ModelView):
     def get_number_next(self, name):
         if self.type != 'incremental':
             return
+
         transaction = Transaction()
-        connection = transaction.connection
-        database = transaction.database
-        version = database.get_version(connection)
-        flavor = database.flavor
-        cursor = connection.cursor()
-        sql_name = self._sql_sequence_name
         if sql_sequence and not self._strict:
-            if version >= (10, 0):
-                cursor.execute(
-                    'SELECT increment_by '
-                    'FROM pg_sequences '
-                    'WHERE sequencename=%s '
-                    % flavor.param,
-                    (sql_name,))
-                increment, = cursor.fetchone()
-                cursor.execute(
-                    'SELECT CASE WHEN NOT is_called THEN last_value '
-                                'ELSE last_value + %s '
-                            'END '
-                    'FROM "%s"' % (flavor.param, sql_name),
-                    (increment,))
-            else:
-                cursor.execute(
-                    'SELECT CASE WHEN NOT is_called THEN last_value '
-                                'ELSE last_value + increment_by '
-                           'END '
-                    'FROM "%s"' % sql_name)
-            return cursor.fetchone()[0]
+            return transaction.database.sequence_next_number(
+                transaction.connection, self._sql_sequence_name)
         else:
             return self.number_next_internal
 
@@ -212,7 +163,7 @@ class Sequence(ModelSQL, ModelView):
     @classmethod
     def create(cls, vlist):
         sequences = super(Sequence, cls).create(vlist)
-        for sequence, values in izip(sequences, vlist):
+        for sequence, values in zip(sequences, vlist):
             if sql_sequence and not cls._strict:
                 sequence.update_sql_sequence(values.get('number_next',
                         cls.default_number_next()))
@@ -255,9 +206,8 @@ class Sequence(ModelSQL, ModelView):
             for fix, error_message in ((sequence.prefix, 'invalid_prefix'),
                     (sequence.suffix, 'invalid_suffix')):
                 try:
-                    cls._process(sequence.prefix)
-                    cls._process(sequence.suffix)
-                except Exception:
+                    cls._process(fix)
+                except (TypeError, ValueError):
                     cls.raise_user_error(error_message, {
                             'prefix': fix,
                             'sequence': sequence.rec_name,
@@ -281,22 +231,22 @@ class Sequence(ModelSQL, ModelView):
 
     def create_sql_sequence(self, number_next=None):
         'Create the SQL sequence'
-        cursor = Transaction().connection.cursor()
-        param = Flavor.get().param
+        transaction = Transaction()
+
         if self.type != 'incremental':
             return
         if number_next is None:
             number_next = self.number_next
-        cursor.execute('CREATE SEQUENCE "' + self._sql_sequence_name
-            + '" INCREMENT BY ' + param + ' START WITH ' + param,
-            (self.number_increment, number_next))
+        if sql_sequence:
+            transaction.database.sequence_create(transaction.connection,
+                self._sql_sequence_name, self.number_increment, number_next)
 
     def update_sql_sequence(self, number_next=None):
         'Update the SQL sequence'
-        TableHandler = backend.get('TableHandler')
-        cursor = Transaction().connection.cursor()
-        param = Flavor.get().param
-        exist = TableHandler.sequence_exist(self._sql_sequence_name)
+        transaction = Transaction()
+
+        exist = transaction.database.sequence_exist(
+            transaction.connection, self._sql_sequence_name)
         if self.type != 'incremental':
             if exist:
                 self.delete_sql_sequence()
@@ -306,32 +256,37 @@ class Sequence(ModelSQL, ModelView):
             return
         if number_next is None:
             number_next = self.number_next
-        cursor.execute('ALTER SEQUENCE "' + self._sql_sequence_name
-            + '" INCREMENT BY ' + param + ' RESTART WITH ' + param,
-            (self.number_increment, number_next))
+        transaction.database.sequence_update(transaction.connection,
+            self._sql_sequence_name, self.number_increment, number_next)
 
     def delete_sql_sequence(self):
         'Delete the SQL sequence'
-        cursor = Transaction().connection.cursor()
+        transaction = Transaction()
         if self.type != 'incremental':
             return
-        cursor.execute('DROP SEQUENCE "%s"'
-            % self._sql_sequence_name)
+        transaction.database.sequence_delete(
+            transaction.connection, self._sql_sequence_name)
 
-    @staticmethod
-    def _process(string, date=None):
+    @classmethod
+    def _process(cls, string, date=None):
+        return Template(string or '').substitute(
+            **cls._get_substitutions(date))
+
+    @classmethod
+    def _get_substitutions(cls, date):
+        '''
+        Returns a dictionary with the keys and values of the substitutions
+        available to format the sequence
+        '''
         pool = Pool()
         Date = pool.get('ir.date')
         if not date:
             date = Date.today()
-        year = datetime_strftime(date, '%Y')
-        month = datetime_strftime(date, '%m')
-        day = datetime_strftime(date, '%d')
-        return Template(string or '').substitute(
-                year=year,
-                month=month,
-                day=day,
-                )
+        return {
+            'year': datetime_strftime(date, '%Y'),
+            'month': datetime_strftime(date, '%m'),
+            'day': datetime_strftime(date, '%d'),
+            }
 
     @staticmethod
     def _timestamp(sequence):
@@ -369,13 +324,13 @@ class Sequence(ModelSQL, ModelView):
         return ''
 
     @classmethod
-    def get_id(cls, domain):
+    def get_id(cls, domain, _lock=False):
         '''
         Return sequence value for the domain
         '''
         if isinstance(domain, cls):
             domain = domain.id
-        if isinstance(domain, (int, long)):
+        if isinstance(domain, int):
             domain = [('id', '=', domain)]
 
         # bypass rules on sequences
@@ -385,6 +340,19 @@ class Sequence(ModelSQL, ModelView):
                     sequence, = cls.search(domain, limit=1)
                 except TypeError:
                     cls.raise_user_error('missing')
+                if _lock:
+                    transaction = Transaction()
+                    database = transaction.database
+                    connection = transaction.connection
+                    if not database.has_select_for():
+                        database.lock(connection, cls._table)
+                    else:
+                        table = cls.__table__()
+                        query = table.select(Literal(1),
+                            where=table.id == sequence.id,
+                            for_=For('UPDATE', nowait=True))
+                        cursor = connection.cursor()
+                        cursor.execute(*query)
                 date = Transaction().context.get('date')
                 return '%s%s%s' % (
                     cls._process(sequence.prefix, date=date),
@@ -400,7 +368,7 @@ class Sequence(ModelSQL, ModelView):
 class SequenceStrict(Sequence):
     "Sequence Strict"
     __name__ = 'ir.sequence.strict'
-    _table = 'ir_sequence_strict'  # Needed to override Sequence._table
+    _table = None  # Needed to reset Sequence._table
     _strict = False
 
     @classmethod

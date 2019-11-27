@@ -1,13 +1,12 @@
 # This file is part of Tryton.  The COPYRIGHT file at the top level of
 # this repository contains the full copyright notices and license terms.
-from __future__ import division
 
 from functools import wraps
 
 from sql.operators import NotIn
 
 from trytond.model import ModelView, ModelSQL, fields, Unique
-from trytond.modules import create_graph, get_module_list, get_module_info
+from trytond.modules import get_module_list, get_module_info
 from trytond.wizard import Wizard, StateView, Button, StateTransition, \
     StateAction
 from trytond import backend
@@ -20,8 +19,8 @@ __all__ = [
     'Module', 'ModuleDependency', 'ModuleConfigWizardItem',
     'ModuleConfigWizardFirst', 'ModuleConfigWizardOther',
     'ModuleConfigWizardDone', 'ModuleConfigWizard',
-    'ModuleInstallUpgradeStart', 'ModuleInstallUpgradeDone',
-    'ModuleInstallUpgrade', 'ModuleConfig',
+    'ModuleActivateUpgradeStart', 'ModuleActivateUpgradeDone',
+    'ModuleActivateUpgrade', 'ModuleConfig',
     ]
 
 
@@ -47,11 +46,11 @@ class Module(ModelSQL, ModelView):
     childs = fields.Function(fields.One2Many('ir.module', None, 'Childs'),
         'get_childs')
     state = fields.Selection([
-        ('uninstalled', 'Not Installed'),
-        ('installed', 'Installed'),
+        ('not activated', 'Not Activated'),
+        ('activated', 'Activated'),
         ('to upgrade', 'To be upgraded'),
         ('to remove', 'To be removed'),
-        ('to install', 'To be installed'),
+        ('to activate', 'To be activated'),
         ], string='State', readonly=True)
 
     @classmethod
@@ -67,36 +66,46 @@ class Module(ModelSQL, ModelView):
                 'on_write': RPC(instantiate=0),
                 })
         cls._error_messages.update({
-            'delete_state': ('You can not remove a module that is installed '
-                    'or will be installed'),
-            'missing_dep': 'Missing dependencies %s for module "%s"',
-            'uninstall_dep': ('The modules you are trying to uninstall '
-                    'depends on installed modules:'),
+            'delete_state': ('You can not remove a module that is activated '
+                    'or will be activated'),
+            'deactivate_dep': ('Some activated modules depend on the ones '
+                    'you are trying to deactivate:'),
             })
         cls._buttons.update({
-                'install': {
-                    'invisible': Eval('state') != 'uninstalled',
+                'activate': {
+                    'invisible': Eval('state') != 'not activated',
+                    'depends': ['state'],
                     },
-                'install_cancel': {
-                    'invisible': Eval('state') != 'to install',
+                'activate_cancel': {
+                    'invisible': Eval('state') != 'to activate',
+                    'depends': ['state'],
                     },
-                'uninstall': {
-                    'invisible': Eval('state') != 'installed',
+                'deactivate': {
+                    'invisible': Eval('state') != 'activated',
+                    'depends': ['state'],
                     },
-                'uninstall_cancel': {
+                'deactivate_cancel': {
                     'invisible': Eval('state') != 'to remove',
+                    'depends': ['state'],
                     },
                 'upgrade': {
-                    'invisible': Eval('state') != 'installed',
+                    'invisible': Eval('state') != 'activated',
+                    'depends': ['state'],
                     },
                 'upgrade_cancel': {
                     'invisible': Eval('state') != 'to upgrade',
+                    'depends': ['state'],
                     },
                 })
 
     @classmethod
     def __register__(cls, module_name):
+        pool = Pool()
+        ModelData = pool.get('ir.model.data')
         TableHandler = backend.get('TableHandler')
+        sql_table = cls.__table__()
+        model_data_sql_table = ModelData.__table__()
+        cursor = Transaction().connection.cursor()
 
         # Migration from 3.6: remove double module
         old_table = 'ir_module_module'
@@ -105,9 +114,31 @@ class Module(ModelSQL, ModelView):
 
         super(Module, cls).__register__(module_name)
 
+        # Migration from 4.0: rename installed to activated
+        cursor.execute(*sql_table.update(
+                [sql_table.state], ['activated'],
+                where=sql_table.state == 'installed'))
+        cursor.execute(*sql_table.update(
+                [sql_table.state], ['not activated'],
+                where=sql_table.state == 'uninstalled'))
+
+        # Migration from 4.6: register buttons on ir module
+        button_fs_ids = [
+            'module_activate_button',
+            'module_activate_cancel_button',
+            'module_deactivate_button',
+            'module_deactivate_cancel_button',
+            'module_upgrade_button',
+            'module_upgrade_cancel_button',
+            ]
+        cursor.execute(*model_data_sql_table.update(
+                [model_data_sql_table.module], ['ir'],
+                where=((model_data_sql_table.module == 'res')
+                    & (model_data_sql_table.fs_id.in_(button_fs_ids)))))
+
     @staticmethod
     def default_state():
-        return 'uninstalled'
+        return 'not activated'
 
     def get_version(self, name):
         return get_module_info(self.name).get('version', '')
@@ -128,7 +159,7 @@ class Module(ModelSQL, ModelView):
         child_ids = dict((m.id, []) for m in modules)
         name2id = dict((m.name, m.id) for m in modules)
         childs = cls.search([
-                ('dependencies.name', 'in', name2id.keys()),
+                ('dependencies.name', 'in', list(name2id.keys())),
                 ])
         for child in childs:
             for dep in child.dependencies:
@@ -140,10 +171,10 @@ class Module(ModelSQL, ModelView):
     def delete(cls, records):
         for module in records:
             if module.state in (
-                    'installed',
+                    'activated',
                     'to upgrade',
                     'to remove',
-                    'to install',
+                    'to activate',
                     ):
                 cls.raise_user_error('delete_state')
         return super(Module, cls).delete(records)
@@ -171,10 +202,9 @@ class Module(ModelSQL, ModelView):
 
     @classmethod
     @ModelView.button
-    @filter_state('uninstalled')
-    def install(cls, modules):
-        modules_install = set(modules)
-        graph, packages, later = create_graph(get_module_list())
+    @filter_state('not activated')
+    def activate(cls, modules):
+        modules_activated = set(modules)
 
         def get_parents(module):
             parents = set(p for p in module.parents)
@@ -183,25 +213,17 @@ class Module(ModelSQL, ModelView):
             return parents
 
         for module in modules:
-            if module.name not in graph:
-                missings = []
-                for package, deps, xdep, info in packages:
-                    if package == module.name:
-                        missings = [x for x in deps if x not in graph]
-                cls.raise_user_error('missing_dep', (missings, module.name))
-
-            modules_install.update((m for m in get_parents(module)
-                    if m.state == 'uninstalled'))
-        cls.write(list(modules_install), {
-                'state': 'to install',
+            modules_activated.update((m for m in get_parents(module)
+                    if m.state == 'not activated'))
+        cls.write(list(modules_activated), {
+                'state': 'to activate',
                 })
 
     @classmethod
     @ModelView.button
-    @filter_state('installed')
+    @filter_state('activated')
     def upgrade(cls, modules):
-        modules_installed = set(modules)
-        graph, packages, later = create_graph(get_module_list())
+        modules_activated = set(modules)
 
         def get_childs(module):
             childs = set(c for c in module.childs)
@@ -210,31 +232,24 @@ class Module(ModelSQL, ModelView):
             return childs
 
         for module in modules:
-            if module.name not in graph:
-                missings = []
-                for package, deps, xdep, info in packages:
-                    if package == module.name:
-                        missings = [x for x in deps if x not in graph]
-                cls.raise_user_error('missing_dep', (missings, module.name))
-
-            modules_installed.update((m for m in get_childs(module)
-                    if m.state == 'installed'))
-        cls.write(list(modules_installed), {
+            modules_activated.update((m for m in get_childs(module)
+                    if m.state == 'activated'))
+        cls.write(list(modules_activated), {
                 'state': 'to upgrade',
                 })
 
     @classmethod
     @ModelView.button
-    @filter_state('to install')
-    def install_cancel(cls, modules):
+    @filter_state('to activate')
+    def activate_cancel(cls, modules):
         cls.write(modules, {
-                'state': 'uninstalled',
+                'state': 'not activated',
                 })
 
     @classmethod
     @ModelView.button
-    @filter_state('installed')
-    def uninstall(cls, modules):
+    @filter_state('activated')
+    def deactivate(cls, modules):
         pool = Pool()
         Module = pool.get('ir.module')
         Dependency = pool.get('ir.module.dependency')
@@ -246,10 +261,11 @@ class Module(ModelSQL, ModelView):
                     condition=(dep_table.module == module_table.id)
                     ).select(module_table.state, module_table.name,
                     where=(dep_table.name == module.name)
-                    & NotIn(module_table.state, ['uninstalled', 'to remove'])))
+                    & NotIn(
+                        module_table.state, ['not activated', 'to remove'])))
             res = cursor.fetchall()
             if res:
-                cls.raise_user_error('uninstall_dep',
+                cls.raise_user_error('deactivate_dep',
                         error_description='\n'.join(
                             '\t%s: %s' % (x[0], x[1]) for x in res))
         cls.write(modules, {'state': 'to remove'})
@@ -257,14 +273,14 @@ class Module(ModelSQL, ModelView):
     @classmethod
     @ModelView.button
     @filter_state('to remove')
-    def uninstall_cancel(cls, modules):
-        cls.write(modules, {'state': 'installed'})
+    def deactivate_cancel(cls, modules):
+        cls.write(modules, {'state': 'not activated'})
 
     @classmethod
     @ModelView.button
     @filter_state('to upgrade')
     def upgrade_cancel(cls, modules):
-        cls.write(modules, {'state': 'installed'})
+        cls.write(modules, {'state': 'activated'})
 
     @classmethod
     def update_list(cls):
@@ -274,8 +290,10 @@ class Module(ModelSQL, ModelView):
 
         modules = cls.search([])
         name2module = dict((m.name, m) for m in modules)
+        cls.delete([m for m in modules
+                if m.state != 'activated' and m.name not in module_names])
 
-        # iterate through installed modules and mark them as being so
+        # iterate through activated modules and mark them as being so
         for name in module_names:
             if name in name2module:
                 module = name2module[name]
@@ -288,7 +306,7 @@ class Module(ModelSQL, ModelView):
                 continue
             module, = cls.create([{
                         'name': name,
-                        'state': 'uninstalled',
+                        'state': 'not activated',
                         }])
             count += 1
             cls._update_dependencies(module, tryton.get('depends', []))
@@ -323,11 +341,11 @@ class ModuleDependency(ModelSQL, ModelView):
     module = fields.Many2One('ir.module', 'Module', select=True,
        ondelete='CASCADE', required=True)
     state = fields.Function(fields.Selection([
-                ('uninstalled', 'Not Installed'),
-                ('installed', 'Installed'),
+                ('not activated', 'Not Activated'),
+                ('activated', 'Activated'),
                 ('to upgrade', 'To be upgraded'),
                 ('to remove', 'To be removed'),
-                ('to install', 'To be installed'),
+                ('to activate', 'To be activated'),
                 ('unknown', 'Unknown'),
                 ], 'State', readonly=True), 'get_state')
 
@@ -364,9 +382,8 @@ class ModuleDependency(ModelSQL, ModelView):
 
 
 class ModuleConfigWizardItem(ModelSQL, ModelView):
-    "Config wizard to run after installing module"
+    "Config wizard to run after activating a module"
     __name__ = 'ir.module.config_wizard.item'
-    _rec_name = 'action'
     action = fields.Many2One('ir.action', 'Action', required=True,
         readonly=True)
     sequence = fields.Integer('Sequence', required=True)
@@ -397,11 +414,6 @@ class ModuleConfigWizardItem(ModelSQL, ModelView):
                 values=[cls.__name__],
                 where=(model_data.model ==
                     'ir.module.module.config_wizard.item')))
-
-        table = TableHandler(cls, module_name)
-
-        # Migrate from 2.2 remove name
-        table.drop_column('name')
 
         super(ModuleConfigWizardItem, cls).__register__(module_name)
 
@@ -474,7 +486,7 @@ class ModuleConfigWizard(Wizard):
     other = StateView('ir.module.config_wizard.other',
         'ir.module_config_wizard_other_view_form', [
             Button('Cancel', 'end', 'tryton-cancel'),
-            Button('Next', 'action', 'tryton-go-next', default=True),
+            Button('Next', 'action', 'tryton-forward', default=True),
             ])
     action = ConfigStateAction()
     done = StateView('ir.module.config_wizard.done',
@@ -502,45 +514,45 @@ class ModuleConfigWizard(Wizard):
         return 'reload menu'
 
 
-class ModuleInstallUpgradeStart(ModelView):
-    'Module Install Upgrade Start'
-    __name__ = 'ir.module.install_upgrade.start'
+class ModuleActivateUpgradeStart(ModelView):
+    'Module Activate Upgrade Start'
+    __name__ = 'ir.module.activate_upgrade.start'
     module_info = fields.Text('Modules to update', readonly=True)
 
 
-class ModuleInstallUpgradeDone(ModelView):
-    'Module Install Upgrade Done'
-    __name__ = 'ir.module.install_upgrade.done'
+class ModuleActivateUpgradeDone(ModelView):
+    'Module Activate Upgrade Done'
+    __name__ = 'ir.module.activate_upgrade.done'
 
 
-class ModuleInstallUpgrade(Wizard):
-    "Install / Upgrade modules"
-    __name__ = 'ir.module.install_upgrade'
+class ModuleActivateUpgrade(Wizard):
+    "Activate / Upgrade modules"
+    __name__ = 'ir.module.activate_upgrade'
 
-    start = StateView('ir.module.install_upgrade.start',
-        'ir.module_install_upgrade_start_view_form', [
+    start = StateView('ir.module.activate_upgrade.start',
+        'ir.module_activate_upgrade_start_view_form', [
             Button('Cancel', 'end', 'tryton-cancel'),
             Button('Start Upgrade', 'upgrade', 'tryton-ok', default=True),
             ])
     upgrade = StateTransition()
-    done = StateView('ir.module.install_upgrade.done',
-        'ir.module_install_upgrade_done_view_form', [
+    done = StateView('ir.module.activate_upgrade.done',
+        'ir.module_activate_upgrade_done_view_form', [
             Button('OK', 'config', 'tryton-ok', default=True),
             ])
     config = StateAction('ir.act_module_config_wizard')
 
     @classmethod
     def check_access(cls):
-        # Use new transaction to prevent lock when installing modules
+        # Use new transaction to prevent lock when activating modules
         with Transaction().new_transaction():
-            super(ModuleInstallUpgrade, cls).check_access()
+            super(ModuleActivateUpgrade, cls).check_access()
 
     @staticmethod
     def default_start(fields):
         pool = Pool()
         Module = pool.get('ir.module')
         modules = Module.search([
-                ('state', 'in', ['to upgrade', 'to remove', 'to install']),
+                ('state', 'in', ['to upgrade', 'to remove', 'to activate']),
                 ])
         return {
             'module_info': '\n'.join(x.name + ': ' + x.state
@@ -559,7 +571,7 @@ class ModuleInstallUpgrade(Wizard):
         Lang = pool.get('ir.lang')
         with Transaction().new_transaction():
             modules = Module.search([
-                ('state', 'in', ['to upgrade', 'to remove', 'to install']),
+                ('state', 'in', ['to upgrade', 'to remove', 'to activate']),
                 ])
             update = [m.name for m in modules]
             langs = Lang.search([

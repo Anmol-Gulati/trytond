@@ -22,7 +22,7 @@ class _AttributeManager(object):
         return Transaction()
 
     def __exit__(self, type, value, traceback):
-        for name, value in self.kwargs.iteritems():
+        for name, value in self.kwargs.items():
             setattr(Transaction(), name, value)
 
 
@@ -31,6 +31,7 @@ class _Local(local):
     def __init__(self):
         # Transaction stack control
         self.transactions = []
+        self.tasks = []
 
 
 class Transaction(object):
@@ -58,10 +59,15 @@ class Transaction(object):
         if new or not transactions:
             instance = super(Transaction, cls).__new__(cls)
             instance.cache = {}
+            instance._atexit = []
             transactions.append(instance)
         else:
             instance = transactions[-1]
         return instance
+
+    @property
+    def tasks(self):
+        return self._local.tasks
 
     def get_cache(self):
         from trytond.cache import LRUDict
@@ -72,7 +78,7 @@ class Transaction(object):
             LRUDict(config.getint('cache', 'model')))
 
     def start(self, database_name, user, readonly=False, context=None,
-            close=False, autocommit=False):
+            close=False, autocommit=False, _nocache=False):
         '''
         Start transaction
         '''
@@ -86,11 +92,11 @@ class Transaction(object):
         else:
             database = Database(database_name).connect()
         Flavor.set(Database.flavor)
+        self.connection = database.get_connection(readonly=readonly,
+            autocommit=autocommit)
         self.user = user
         self.database = database
         self.readonly = readonly
-        self.connection = database.get_connection(readonly=readonly,
-            autocommit=autocommit)
         self.close = close
         self.context = context or {}
         self.create_records = {}
@@ -99,18 +105,31 @@ class Transaction(object):
         self.timestamp = {}
         self.counter = 0
         self._datamanagers = []
+        self._nocache = _nocache
+        if not _nocache:
+            from trytond.cache import Cache
+            try:
+                Cache.clean(database.name)
+            except BaseException:
+                self.stop(False)
+                raise
         return self
 
     def __enter__(self):
         return self
 
     def __exit__(self, type, value, traceback):
+        self.stop(type is None)
+
+    def stop(self, commit=False):
         transactions = self._local.transactions
         try:
             if transactions.count(self) == 1:
                 try:
                     try:
-                        if type is None and not self.readonly:
+                        # Transaction must be commited to send notifications
+                        if commit and (not self.readonly
+                                or self.database.has_channel()):
                             self.commit()
                         else:
                             self.rollback()
@@ -129,9 +148,15 @@ class Transaction(object):
                     self.delete = None
                     self.timestamp = None
                     self._datamanagers = []
+
+                for func, args, kwargs in self._atexit:
+                    func(*args, **kwargs)
         finally:
-            current_instance = transactions.pop()
-        assert current_instance is self, transactions
+            transactions.reverse()
+            try:
+                transactions.remove(self)
+            finally:
+                transactions.reverse()
 
     def set_context(self, context=None, **kwargs):
         if context is None:
@@ -166,11 +191,12 @@ class Transaction(object):
         self._local.transactions.append(transaction)
         return transaction
 
-    def new_transaction(self, autocommit=False, readonly=False):
+    def new_transaction(self, autocommit=False, readonly=False,
+            _nocache=False):
         transaction = Transaction(new=True)
         return transaction.start(self.database.name, self.user,
             context=self.context, close=self.close, readonly=readonly,
-            autocommit=autocommit)
+            autocommit=autocommit, _nocache=_nocache)
 
     def commit(self):
         try:
@@ -193,13 +219,19 @@ class Transaction(object):
                 logger.critical('A datamanager raised an exception in'
                     ' tpc_finish, the data might be inconsistant',
                     exc_info=True)
+        if not self._nocache:
+            from trytond.cache import Cache
+            Cache.resets(self.database.name)
 
     def rollback(self):
-        for cache in self.cache.itervalues():
+        for cache in self.cache.values():
             cache.clear()
         for datamanager in self._datamanagers:
             datamanager.tpc_abort(self)
         self.connection.rollback()
+        if not self._nocache:
+            from trytond.cache import Cache
+            Cache.resets(self.database.name)
 
     def join(self, datamanager):
         try:
@@ -208,6 +240,9 @@ class Transaction(object):
         except ValueError:
             self._datamanagers.append(datamanager)
             return datamanager
+
+    def atexit(self, func, *args, **kwargs):
+        self._atexit.append((func, args, kwargs))
 
     @property
     def language(self):

@@ -2,7 +2,6 @@
 # this repository contains the full copyright notices and license terms.
 
 import copy
-import collections
 from functools import total_ordering
 
 from trytond.model import fields
@@ -25,7 +24,7 @@ class ModelMeta(PoolMeta):
 
 
 @total_ordering
-class Model(WarningErrorMixin, URLMixin, PoolBase):
+class Model(WarningErrorMixin, URLMixin, PoolBase, metaclass=ModelMeta):
     """
     Define a model in Tryton.
     """
@@ -75,10 +74,10 @@ class Model(WarningErrorMixin, URLMixin, PoolBase):
 
         # Set _defaults
         cls._defaults = {}
-        fields_names = cls._fields.keys()
+        fields_names = list(cls._fields.keys())
         for field_name in fields_names:
             default_method = getattr(cls, 'default_%s' % field_name, False)
-            if isinstance(default_method, collections.Callable):
+            if callable(default_method):
                 cls._defaults[field_name] = default_method
 
         for k in cls._defaults:
@@ -87,7 +86,7 @@ class Model(WarningErrorMixin, URLMixin, PoolBase):
                 % (cls.__name__, k,)
 
         # Set name to fields
-        for name, field in cls._fields.iteritems():
+        for name, field in cls._fields.items():
             if field.name is None:
                 field.name = name
             else:
@@ -132,8 +131,13 @@ class Model(WarningErrorMixin, URLMixin, PoolBase):
         If with_rec_name is True, rec_name will be added.
         '''
         pool = Pool()
-        Property = pool.get('ir.property')
         value = {}
+
+        default_rec_name = Transaction().context.get('default_rec_name')
+        if (default_rec_name
+                and cls._rec_name in cls._fields
+                and cls._rec_name in fields_names):
+            value[cls._rec_name] = default_rec_name
 
         # get the default values defined in the object
         for field_name in fields_names:
@@ -143,8 +147,6 @@ class Model(WarningErrorMixin, URLMixin, PoolBase):
             if (field._type == 'boolean'
                     and field_name not in value):
                 value[field_name] = False
-            if isinstance(field, fields.Property):
-                value[field_name] = Property.get(field_name, cls.__name__)
             if (with_rec_name
                     and field._type in ('many2one',)
                     and value.get(field_name)):
@@ -154,7 +156,7 @@ class Model(WarningErrorMixin, URLMixin, PoolBase):
                         value[field_name]).rec_name
 
         if not with_rec_name:
-            for field in value.keys():
+            for field in list(value.keys()):
                 if field.endswith('.rec_name'):
                     del value[field]
         return value
@@ -221,6 +223,8 @@ class Model(WarningErrorMixin, URLMixin, PoolBase):
                     'selection_change_with',
                     'domain',
                     'converter',
+                    'search_order',
+                    'search_context',
                     ):
                 if getattr(cls._fields[field], arg, None) is not None:
                     value = getattr(cls._fields[field], arg)
@@ -239,16 +243,17 @@ class Model(WarningErrorMixin, URLMixin, PoolBase):
                         and getattr(cls._fields[field], arg):
                     res[field][arg] = copy.copy(getattr(cls._fields[field],
                         arg))
-            if (isinstance(cls._fields[field],
-                        (fields.Function, fields.One2Many, fields.Many2Many))
-                    and not getattr(cls, 'order_%s' % field, None)):
+            if ((isinstance(cls._fields[field],
+                            (fields.Function, fields.One2Many,
+                                fields.Many2Many))
+                        and not getattr(cls, 'order_%s' % field, None))
+                    or not hasattr(cls, 'search')):
                 res[field]['sortable'] = False
             if ((isinstance(cls._fields[field], fields.Function)
-                    and not cls._fields[field].searcher)
+                        and not (cls._fields[field].searcher
+                            or getattr(cls, 'domain_%s' % field, None)))
                     or (cls._fields[field]._type in ('binary', 'sha'))
-                    or (isinstance(cls._fields[field], fields.Property)
-                        and isinstance(cls._fields[field]._field,
-                            fields.Many2One))):
+                    or not hasattr(cls, 'search')):
                 res[field]['searchable'] = False
             elif (isinstance(cls._fields[field], fields.JSON)):
                 res[field]['searchable'] = False
@@ -314,7 +319,7 @@ class Model(WarningErrorMixin, URLMixin, PoolBase):
             if res[field]['type'] == 'many2one':
                 target = cls._fields[field].get_target()
                 relation_fields = []
-                for target_name, target_field in target._fields.iteritems():
+                for target_name, target_field in target._fields.items():
                     if (target_field._type == 'one2many'
                             and target_field.model_name == cls.__name__
                             and target_field.field == field):
@@ -322,7 +327,7 @@ class Model(WarningErrorMixin, URLMixin, PoolBase):
                 # Set relation_field only if there is no ambiguity
                 if len(relation_fields) == 1:
                     res[field]['relation_field'], = relation_fields
-            if res[field]['type'] in ('datetime', 'time'):
+            if res[field]['type'] in ('datetime', 'time', 'timestamp'):
                 res[field]['format'] = copy.copy(cls._fields[field].format)
             if res[field]['type'] == 'selection':
                 res[field]['context'] = copy.copy(cls._fields[field].context)
@@ -334,14 +339,18 @@ class Model(WarningErrorMixin, URLMixin, PoolBase):
                     True)
                 res[field]['delete'] = accesses.get(field, {}).get('delete',
                     True)
+            filter_ = getattr(cls._fields[field], 'filter', None)
+            if filter_:
+                res[field]['domain'] = ['AND', res[field]['domain'], filter_]
 
             # convert attributes into pyson
             for attr in ('states', 'domain', 'context', 'digits', 'size',
-                    'add_remove', 'format', 'currency_symbol', 'uom_symbol'):
+                    'add_remove', 'format', 'currency_symbol', 'uom_symbol',
+                    'search_order', 'search_context'):
                 if attr in res[field]:
                     res[field][attr] = encoder.encode(res[field][attr])
 
-        for i in res.keys():
+        for i in list(res.keys()):
             # filter out fields which aren't in the fields_names list
             if fields_names:
                 if i not in fields_names:
@@ -361,19 +370,26 @@ class Model(WarningErrorMixin, URLMixin, PoolBase):
         if kwargs:
             self._values = {}
             parent_values = {}
-            for name, value in kwargs.iteritems():
+            for name, value in kwargs.items():
                 if not name.startswith('_parent_'):
                     setattr(self, name, value)
                 else:
                     parent_values[name] = value
-            for name, value in parent_values.iteritems():
+
+            def set_parent_value(record, name, value):
                 parent_name, field = name.split('.', 1)
                 parent_name = parent_name[8:]  # Strip '_parent_'
-                parent = getattr(self, parent_name, None)
+                parent = getattr(record, parent_name, None)
                 if parent is not None:
-                    setattr(parent, field, value)
+                    if not field.startswith('_parent_'):
+                        setattr(parent, field, value)
+                    else:
+                        set_parent_value(parent, field, value)
                 else:
-                    setattr(self, parent_name, {field: value})
+                    setattr(record, parent_name, {field: value})
+
+            for name, value in parent_values.items():
+                set_parent_value(self, name, value)
             self._init_values = self._values.copy()
         else:
             self._values = None
@@ -394,9 +410,6 @@ class Model(WarningErrorMixin, URLMixin, PoolBase):
 
     def __str__(self):
         return '%s,%s' % (self.__name__, self.id)
-
-    def __unicode__(self):
-        return u'%s,%s' % (self.__name__, self.id)
 
     def __repr__(self):
         if self.id is None or self.id < 0:
@@ -423,7 +436,7 @@ class Model(WarningErrorMixin, URLMixin, PoolBase):
     def __hash__(self):
         return hash((self.__name__, self.id))
 
-    def __nonzero__(self):
+    def __bool__(self):
         return True
 
     @property
@@ -437,7 +450,7 @@ class Model(WarningErrorMixin, URLMixin, PoolBase):
         """
         values = {}
         if self._values:
-            for fname, value in self._values.iteritems():
+            for fname, value in self._values.items():
                 field = self._fields[fname]
                 if field._type in ('many2one', 'one2one', 'reference'):
                     if value:

@@ -3,7 +3,7 @@
 # this repository contains the full copyright notices and license terms.
 import unittest
 from datetime import datetime
-from trytond.tests.test_tryton import install_module, with_transaction
+from trytond.tests.test_tryton import activate_module, with_transaction
 from trytond.transaction import Transaction
 from trytond.pool import Pool
 
@@ -13,7 +13,7 @@ class ModelSingletonTestCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        install_module('tests')
+        activate_module('tests')
 
     @with_transaction()
     def test_read(self):
@@ -22,12 +22,12 @@ class ModelSingletonTestCase(unittest.TestCase):
         Singleton = pool.get('test.singleton')
 
         singleton, = Singleton.read([1], ['name'])
-        self.assert_(singleton['name'] == 'test')
-        self.assert_(singleton['id'] == 1)
+        self.assertTrue(singleton['name'] == 'test')
+        self.assertTrue(singleton['id'] == 1)
 
         singleton, = Singleton.read([1], ['name'])
-        self.assert_(singleton['name'] == 'test')
-        self.assert_(singleton['id'] == 1)
+        self.assertTrue(singleton['name'] == 'test')
+        self.assertTrue(singleton['id'] == 1)
 
         singleton, = Singleton.read([1], [
             'create_uid',
@@ -38,7 +38,7 @@ class ModelSingletonTestCase(unittest.TestCase):
             ])
         self.assertEqual(singleton['create_uid'], Transaction().user)
         self.assertEqual(singleton['create_uid.rec_name'], 'Administrator')
-        self.assert_(isinstance(singleton['create_date'], datetime))
+        self.assertTrue(isinstance(singleton['create_date'], datetime))
         self.assertEqual(singleton['write_uid'], None)
         self.assertEqual(singleton['write_date'], None)
 
@@ -49,7 +49,7 @@ class ModelSingletonTestCase(unittest.TestCase):
         Singleton = pool.get('test.singleton')
 
         singleton, = Singleton.create([{'name': 'bar'}])
-        self.assert_(singleton)
+        self.assertTrue(singleton)
         self.assertEqual(singleton.name, 'bar')
 
         singleton2, = Singleton.create([{'name': 'foo'}])
@@ -115,10 +115,10 @@ class ModelSingletonTestCase(unittest.TestCase):
         Singleton = pool.get('test.singleton')
 
         singletons = Singleton.search([])
-        self.assertEqual(map(int, singletons), [1])
+        self.assertEqual(list(map(int, singletons)), [1])
 
         singletons = Singleton.search([])
-        self.assertEqual(map(int, singletons), [1])
+        self.assertEqual(list(map(int, singletons)), [1])
 
         count = Singleton.search([], count=True)
         self.assertEqual(count, 1)
@@ -128,6 +128,20 @@ class ModelSingletonTestCase(unittest.TestCase):
         self.assertEqual(singleton.name, 'foo')
         singletons = Singleton.search([('name', '=', 'bar')])
         self.assertEqual(singletons, [])
+
+    @with_transaction()
+    def test_all_cache_cleared(self):
+        "Test all cache cleared"
+        pool = Pool()
+        Singleton = pool.get('test.singleton')
+
+        singleton, = Singleton.create([{'name': 'foo'}])
+        singleton2 = Singleton(singleton.id + 1)  # Use a different id
+        singleton2.name  # Fill the cache
+        Singleton.write([singleton], {'name': 'bar'})
+        singleton2 = Singleton(singleton2.id)  # Clear local cache
+
+        self.assertEqual(singleton2.name, 'bar')
 
 
 def suite():

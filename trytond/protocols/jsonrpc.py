@@ -2,15 +2,12 @@
 # this repository contains the full copyright notices and license terms.
 import datetime
 from decimal import Decimal
-try:
-    import simplejson as json
-except ImportError:
-    import json
+import json
 import base64
 
 from werkzeug.wrappers import Response
 from werkzeug.utils import cached_property
-from werkzeug.exceptions import BadRequest
+from werkzeug.exceptions import BadRequest, InternalServerError
 
 from trytond.protocols.wrappers import Request
 from trytond.exceptions import TrytonException
@@ -44,7 +41,7 @@ JSONDecoder.register('timedelta',
 
 def _bytes_decoder(dct):
     cast = bytearray if bytes == str else bytes
-    return cast(base64.decodestring(dct['base64'].encode('utf-8')))
+    return cast(base64.decodebytes(dct['base64'].encode('utf-8')))
 JSONDecoder.register('bytes', _bytes_decoder)
 JSONDecoder.register('Decimal', lambda dct: Decimal(dct['decimal']))
 
@@ -52,11 +49,6 @@ JSONDecoder.register('Decimal', lambda dct: Decimal(dct['decimal']))
 class JSONEncoder(json.JSONEncoder):
 
     serializers = {}
-
-    def __init__(self, *args, **kwargs):
-        super(JSONEncoder, self).__init__(*args, **kwargs)
-        # Force to use our custom decimal with simplejson
-        self.use_decimal = False
 
     @classmethod
     def register(cls, klass, encoder):
@@ -101,7 +93,7 @@ JSONEncoder.register(datetime.timedelta,
         })
 _bytes_encoder = lambda o: {
     '__class__': 'bytes',
-    'base64': base64.encodestring(o).decode('utf-8'),
+    'base64': base64.encodebytes(o).decode('utf-8'),
     }
 JSONEncoder.register(bytes, _bytes_encoder)
 JSONEncoder.register(bytearray, _bytes_encoder)
@@ -129,11 +121,11 @@ class JSONRequest(Request):
             raise BadRequest('Not a JSON request')
 
     @cached_property
-    def method(self):
+    def rpc_method(self):
         return self.parsed_data['method']
 
     @cached_property
-    def params(self):
+    def rpc_params(self):
         return self.parsed_data['params']
 
 
@@ -146,16 +138,24 @@ class JSONProtocol:
 
     @classmethod
     def response(cls, data, request):
-        if isinstance(request, JSONRequest):
-            response = {'id': request.parsed_data.get('id', 0)}
+        try:
+            parsed_data = request.parsed_data
+        except BadRequest:
+            parsed_data = {}
+        if (isinstance(request, JSONRequest)
+                and set(parsed_data.keys()) == {'id', 'method', 'params'}):
+            response = {'id': parsed_data.get('id', 0)}
+            if isinstance(data, TrytonException):
+                response['error'] = data.args
+            elif isinstance(data, Exception):
+                # report exception back to server
+                response['error'] = (str(data), data.__format_traceback__)
+            else:
+                response['result'] = data
         else:
-            response = {}
-        if isinstance(data, TrytonException):
-            response['error'] = data.args
-        elif isinstance(data, Exception):
-            # report exception back to server
-            response['error'] = (str(data), data.__format_traceback__)
-        else:
-            response['result'] = data
-        return Response(json.dumps(response, cls=JSONEncoder),
+            if isinstance(data, Exception):
+                return InternalServerError(data)
+            response = data
+        return Response(json.dumps(
+                response, cls=JSONEncoder, separators=(',', ':')),
             content_type='application/json')

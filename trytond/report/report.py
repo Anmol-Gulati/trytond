@@ -1,11 +1,21 @@
 # This file is part of Tryton.  The COPYRIGHT file at the top level of
 # this repository contains the full copyright notices and license terms.
-import os
 import datetime
+import os
+import logging
+import subprocess
 import tempfile
 import warnings
+import zipfile
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from io import BytesIO
 
-import subprocess
+try:
+    import html2text
+except ImportError:
+    html2text = None
+
 warnings.simplefilter("ignore")
 import relatorio.reporting
 warnings.resetwarnings()
@@ -14,19 +24,20 @@ try:
 except ImportError:
     Manifest, MANIFEST = None, None
 from genshi.filters import Translator
-from trytond.config import config
 from trytond.pool import Pool, PoolBase
 from trytond.transaction import Transaction
 from trytond.url import URLMixin
 from trytond.rpc import RPC
 from trytond.exceptions import UserError
 
+logger = logging.getLogger(__name__)
+
 MIMETYPES = {
     'odt': 'application/vnd.oasis.opendocument.text',
     'odp': 'application/vnd.oasis.opendocument.presentation',
     'ods': 'application/vnd.oasis.opendocument.spreadsheet',
     'odg': 'application/vnd.oasis.opendocument.graphics',
-    'plain': 'text/plain',
+    'txt': 'text/plain',
     'xml': 'text/xml',
     'html': 'text/html',
     'xhtml': 'text/xhtml',
@@ -35,6 +46,7 @@ FORMAT2EXT = {
     'doc6': 'doc',
     'doc95': 'doc',
     'docbook': 'xml',
+    'docx7': 'docx',
     'ooxml': 'xml',
     'latex': 'ltx',
     'sdc4': 'sdc',
@@ -71,22 +83,34 @@ class TranslateFactory:
         self.cache = {}
 
     def __call__(self, text):
+        from trytond.ir.lang import get_parent_language
         if self.language not in self.cache:
-            self.cache[self.language] = {}
-            translations = self.translation.search([
-                ('lang', '=', self.language),
-                ('type', '=', 'report'),
-                ('name', '=', self.report_name),
-                ('value', '!=', ''),
-                ('value', '!=', None),
-                ('fuzzy', '=', False),
-                ('res_id', '=', -1),
-                ])
-            for translation in translations:
-                self.cache[self.language][translation.src] = translation.value
+            cache = self.cache[self.language] = {}
+            code = self.language
+            while code:
+                # Order to get empty module/custom report first
+                translations = self.translation.search([
+                    ('lang', '=', code),
+                    ('type', '=', 'report'),
+                    ('name', '=', self.report_name),
+                    ('value', '!=', ''),
+                    ('value', '!=', None),
+                    ('fuzzy', '=', False),
+                    ('res_id', '=', -1),
+                    ], order=[('module', 'DESC')])
+                for translation in translations:
+                    cache.setdefault(translation.src, translation.value)
+                code = get_parent_language(code)
         return self.cache[self.language].get(text, text)
 
-    def set_language(self, language):
+    def set_language(self, language=None):
+        pool = Pool()
+        Config = pool.get('ir.configuration')
+        Lang = pool.get('ir.lang')
+        if isinstance(language, Lang):
+            language = language.code
+        if not language:
+            language = Config.get_language()
         self.language = language
 
 
@@ -139,7 +163,7 @@ class Report(URLMixin, PoolBase):
         else:
             action_report = ActionReport(action_id)
 
-        records = None
+        records = []
         model = action_report.model or data.get('model')
         if model:
             records = cls._get_records(ids, model, data)
@@ -149,23 +173,36 @@ class Report(URLMixin, PoolBase):
         return (oext, url, action_report.direct_print, action_report.name)
 
     @classmethod
+    def _execute(cls, records, data, action):
+        report_context = cls.get_context(records, data)
+        return cls.convert(action, cls.render(action, report_context))
+
+    @classmethod
     def _get_records(cls, ids, model, data):
         pool = Pool()
         Model = pool.get(model)
+        Config = pool.get('ir.configuration')
+        Lang = pool.get('ir.lang')
+        context = Transaction().context
 
-        class TranslateModel:
+        class TranslateModel(object):
             _languages = {}
 
             def __init__(self, id):
                 self.id = id
                 self._language = Transaction().language
 
-            def set_lang(self, language):
+            def set_lang(self, language=None):
+                if isinstance(language, Lang):
+                    language = language.code
+                if not language:
+                    language = Config.get_language()
                 self._language = language
 
             def __getattr__(self, name):
                 if self._language not in TranslateModel._languages:
-                    with Transaction().set_context(language=self._language):
+                    with Transaction().set_context(
+                            context=context, language=self._language):
                         records = Model.browse(ids)
                     id2record = dict((r.id, r) for r in records)
                     TranslateModel._languages[self._language] = id2record
@@ -173,6 +210,13 @@ class Report(URLMixin, PoolBase):
                     id2record = TranslateModel._languages[self._language]
                 record = id2record[self.id]
                 return getattr(record, name)
+
+            def __int__(self):
+                return int(self.id)
+
+            def __str__(self):
+                return '%s,%s' % (Model.__name__, self.id)
+
         return [TranslateModel(id) for id in ids]
 
     @classmethod
@@ -185,6 +229,7 @@ class Report(URLMixin, PoolBase):
         report_context['context'] = Transaction().context
         report_context['user'] = User(Transaction().user)
         report_context['records'] = records
+        report_context['record'] = records[0] if records else None
         report_context['format_date'] = cls.format_date
         report_context['format_currency'] = cls.format_currency
         report_context['format_number'] = cls.format_number
@@ -245,49 +290,94 @@ class Report(URLMixin, PoolBase):
         if output_format in MIMETYPES:
             return output_format, data
 
-        fd, path = tempfile.mkstemp(suffix=(os.extsep + input_format),
-            prefix='trytond_')
+        dtemp = tempfile.mkdtemp(prefix='trytond_')
+        path = os.path.join(
+            dtemp, report.report_name + os.extsep + input_format)
         oext = FORMAT2EXT.get(output_format, output_format)
-        with os.fdopen(fd, 'wb+') as fp:
+        with open(path, 'wb+') as fp:
             fp.write(data)
-        cmd = ['unoconv', '--connection=%s' % config.get('report', 'unoconv'),
-            '-f', oext, '--stdout', path]
         try:
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-            stdoutdata, stderrdata = proc.communicate()
-            if proc.wait() != 0:
-                raise Exception(stderrdata)
-            return oext, stdoutdata
+            cmd = ['soffice',
+                '--headless', '--nolockcheck', '--nodefault', '--norestore',
+                '--convert-to', oext, '--outdir', dtemp, path]
+            output = os.path.splitext(path)[0] + os.extsep + oext
+            subprocess.check_call(cmd)
+            if os.path.exists(output):
+                with open(output, 'rb') as fp:
+                    return oext, fp.read()
+            else:
+                logger.error(
+                    'fail to convert %s to %s', report.report_name, oext)
+                return input_format, data
         finally:
-            os.remove(path)
+            try:
+                os.remove(path)
+                os.remove(output)
+                os.rmdir(dtemp)
+            except OSError:
+                pass
 
     @classmethod
-    def format_date(cls, value, lang):
+    def format_date(cls, value, lang=None):
         pool = Pool()
         Lang = pool.get('ir.lang')
-        Config = pool.get('ir.configuration')
-
-        if lang:
-            locale_format = lang.date
-            code = lang.code
-        else:
-            locale_format = Lang.default_date()
-            code = Config.get_language()
-        return Lang.strftime(value, code, locale_format)
+        if lang is None:
+            lang = Lang.get()
+        return lang.strftime(value)
 
     @classmethod
     def format_currency(cls, value, lang, currency, symbol=True,
             grouping=True):
         pool = Pool()
         Lang = pool.get('ir.lang')
-
-        return Lang.currency(lang, value, currency, symbol, grouping)
+        if lang is None:
+            lang = Lang.get()
+        return lang.currency(value, currency, symbol, grouping)
 
     @classmethod
     def format_number(cls, value, lang, digits=2, grouping=True,
             monetary=None):
         pool = Pool()
         Lang = pool.get('ir.lang')
-
-        return Lang.format(lang, '%.' + str(digits) + 'f', value,
+        if lang is None:
+            lang = Lang.get()
+        return lang.format('%.' + str(digits) + 'f', value,
             grouping=grouping, monetary=monetary)
+
+
+def get_email(report, record, languages):
+    "Return email.mime and title from the report execution"
+    pool = Pool()
+    ActionReport = pool.get('ir.action.report')
+    report_id = None
+    if isinstance(report, Report):
+        Report_ = report
+    else:
+        if isinstance(report, ActionReport):
+            report_name = report.report_name
+            report_id = report.id
+        else:
+            report_name = report
+        Report_ = pool.get(report_name, type='report')
+    converter = None
+    title = None
+    msg = MIMEMultipart('alternative')
+    msg.add_header('Content-Language', ', '.join(l.code for l in languages))
+    for language in languages:
+        with Transaction().set_context(language=language.code):
+            ext, content, _, title = Report_.execute(
+                [record.id], {
+                    'action_id': report_id,
+                    'language': language,
+                    })
+        if ext == 'html' and html2text:
+            if not converter:
+                converter = html2text.HTML2Text()
+            part = MIMEText(
+                converter.handle(content), 'plain', _charset='utf-8')
+            part.add_header('Content-Language', language.code)
+            msg.attach(part)
+        part = MIMEText(content, ext, _charset='utf-8')
+        part.add_header('Content-Language', language.code)
+        msg.attach(part)
+    return msg, title

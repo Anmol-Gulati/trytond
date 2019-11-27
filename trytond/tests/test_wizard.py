@@ -1,7 +1,7 @@
 # This file is part of Tryton.  The COPYRIGHT file at the top level of this
 # repository contains the full copyright notices and license terms.
 import unittest
-from trytond.tests.test_tryton import install_module, with_transaction
+from trytond.tests.test_tryton import activate_module, with_transaction
 from trytond.transaction import Transaction
 from trytond.pool import Pool
 
@@ -10,7 +10,7 @@ class WizardTestCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        install_module('tests')
+        activate_module('tests')
 
     @with_transaction()
     def test_create(self):
@@ -21,7 +21,7 @@ class WizardTestCase(unittest.TestCase):
         session_id, start_state, end_state = Wizard.create()
         self.assertEqual(start_state, 'start')
         self.assertEqual(end_state, 'end')
-        self.assert_(session_id)
+        self.assertTrue(session_id)
 
     @with_transaction()
     def test_delete(self):
@@ -78,7 +78,7 @@ class WizardTestCase(unittest.TestCase):
 
         session_id, start_state, end_state = Wizard.create()
         result = Wizard.execute(session_id, {}, start_state)
-        self.assertEqual(result.keys(), ['view'])
+        self.assertEqual(list(result.keys()), ['view'])
         self.assertEqual(result['view']['defaults'], {
                 'name': 'Test wizard',
                 })

@@ -41,6 +41,11 @@ Class attributes are:
 
     The definition of the field ``id`` of records.
 
+.. attribute:: Model.__queue__
+
+    It returns a queue caller for the model. The called method will be pushed
+    into the queue.
+
 Class methods:
 
 .. classmethod:: Model.__setup__()
@@ -82,6 +87,8 @@ Class methods:
     ``fields_names``. Default values are defined by the returned value of each
     instance method with the pattern ``default_`field_name`()``.
     ``with_rec_name`` allow to add `rec_name` value for each many2one field.
+    The `default_rec_name` key in the context can be used to define the value
+    of the :attr:`Model._rec_name` field.
 
 .. classmethod:: Model.fields_get([fields_names])
 
@@ -122,7 +129,7 @@ Static methods:
 
 .. staticmethod:: ModelView.button
 
-    Decorate button method to check group access.
+    Decorate button method to check group access and rule.
 
 .. staticmethod:: ModelView.button_action(action)
 
@@ -163,10 +170,6 @@ Class methods:
         - `print`: a list of available reports
         - `action`: a list of available actions
         - `relate`: a list of available relations
-
-.. classmethod:: ModelView.view_header_get(value[, view_type])
-
-    Returns the window title used by the client for the specific view type.
 
 .. classmethod:: ModelView.view_attributes()
 
@@ -270,6 +273,10 @@ Class methods:
     ``on_write`` is set and ``condition`` was false before
     :meth:`~ModelStorage.write` and true after.
 
+.. classmethod:: ModelStorage.index_set_field(name)
+
+    Return the index sort order of the field set calls.
+
 .. classmethod:: ModelStorage.delete(records)
 
     Delete records.
@@ -281,8 +288,18 @@ Class methods:
 
 .. classmethod:: ModelStorage.copy(records[, default])
 
-    Duplicate the records. ``default`` is a dictionary of default value for the
-    created records.
+    Duplicate the records. ``default`` is a dictionary of default value per
+    field name for the created records.
+
+    The values of ``default`` may be also callable that take a dictionary
+    containing the fields and values of the record copied and return of the
+    value.
+
+    The keys of ``default`` may use the dotted notation for the
+    :class:`fields.One2Many` to define the default to pass to its `copy`
+    operation.
+
+    New records are returned following the input order.
 
 .. classmethod:: ModelStorage.search(domain[, offset[, limit[, order[, count]]]])
 
@@ -323,19 +340,13 @@ Class methods:
 
     Create records for all values in ``datas``.
     The field names of values must be defined in ``fields_names``.
-    It returns a tuple containing: the number of records imported, the last values
-    if failed, the exception if failed and the warning if failed.
+    It returns the number of imported records.
 
 .. classmethod:: ModelStorage.check_xml_record(records, values)
 
     Verify if the records are originating from XML data. It is used to prevent
     modification of data coming from XML files. This method must be overiden to
     change this behavior.
-
-.. classmethod:: ModelStorage.check_recursion(records[, parent])
-
-    Helper method that checks if there is no recursion in the tree composed
-    with ``parent`` as parent field name.
 
 .. classmethod:: ModelStorage.validate(records)
 
@@ -374,17 +385,7 @@ Class attributes are:
 
 .. attribute:: ModelSQL._order
 
-    A list of tuples defining the default order of the records:
-
-        [ ('field name', 'ASC'), ('other field name', 'DESC'), ... ]
-
-    where the first element of the tuple is a field name of the model and the
-    second is the sort ordering as `ASC` for ascending or `DESC` for
-    descending.
-
-    In case the field used for the first element is a :class:`fields.Many2One`,
-    it is also possible to use the dotted notation to sort on a specific field
-    from the target record.
+    The default `order` parameter of :meth:`ModelStorage.search` method.
 
 .. attribute:: ModelSQL._order_name
 
@@ -419,9 +420,17 @@ Class methods:
 
     Return a SQL Table instance for the Model.
 
+.. classmethod:: ModelSQL.__table_history__()
+
+    Return a SQL Table instance for the history of Model.
+
+.. classmethod:: ModelSQL.__table_handler__([module_name[, history]])
+
+    Return a TableHandler for the Model.
+
 .. classmethod:: ModelSQL.table_query()
 
-    Could be overrided to use a custom SQL query instead of a table of the
+    Could be defined to use a custom SQL query instead of a table of the
     database. It should return a SQL FromItem.
 
     .. warning::
@@ -453,10 +462,30 @@ Class methods:
         No access rights are verified and the records are not validated.
     ..
 
-.. classmethod:: ModelStorage.search(domain[, offset[, limit[, order[, count[, query]]]]])
+.. classmethod:: ModelSQL.search(domain[, offset[, limit[, order[, count[, query]]]]])
 
-    Return a list of records that match the :ref:`domain <topics-domain>` or
-    the sql query if query is True.
+    Return a list of records that match the :ref:`domain <topics-domain>`.
+
+    If `offset` or `limit` are set, the result starts at the offset and has the
+    length of the limit.
+
+    The `order` is a list of tuples defining the order of the result:
+
+            [ ('field name', 'ASC'), ('other field name', 'DESC'), ... ]
+
+    The first element of the tuple is a field name of the model and the second
+    is the sort ordering as `ASC` for ascending or `DESC` for descending. This
+    second element may contain 'NULLS FIRST' or 'NULLS LAST' to sort null
+    values before or after non-null values. If neither is specified the default
+    behavior of the backend is used.
+
+    In case the field used is a :class:`fields.Many2One`, it is also possible
+    to use the dotted notation to sort on a specific field from the target
+    record.
+
+    If `count` is set to `True`, then the result is the number of records.
+
+    If `query` is set to `True`, the the result is the SQL query.
 
 .. classmethod:: ModelSQL.search_domain(domain[, active_test[, tables]])
 
@@ -518,6 +547,37 @@ Instance attributes:
 .. attribute:: Unique.columns
 
     The tuple of SQL Column instances.
+
+.. attribute:: Unique.operators
+
+    The tuple of `Equal` operators.
+
+Exclude
+-------
+
+.. class:: Exclude(table[, (expression, operator), ...[, where]])
+
+It represents an exclude :class:`Constraint` which guarantees that if any two
+rows are compared on the specified expression using the specified operator not
+all of these comparisons will return `TRUE`.
+
+Instance attributes:
+
+.. attribute:: Exclude.excludes
+
+    The tuple of expression and operator.
+
+.. attribute:: Exclude.columns
+
+    The tuple of expressions.
+
+.. attribute:: Exclude.operators
+
+    The tuple of operators.
+
+.. attribute:: Exclude.where
+
+    The clause for which the exclusion applies.
 
 ========
 Workflow
@@ -601,6 +661,16 @@ Class attributes are:
     The definition of the :class:`trytond.model.fields.Integer` field for the
     digits number when the type is `float` or `numeric`.
 
+.. attribute:: DictSchemaMixin.domain
+
+   A :ref:`domain <topics-domain>` constraint on the dictionary key that will
+   be enforced only on the client side.
+
+   The key must be referenced by its name in the left operator of the domain.
+   The :ref:`PYSON <ref-pyson>` evaluation context used to compute the domain
+   is the dictionary value. Likewise the domain is tested using the dictionary
+   value.
+
 .. attribute:: DictSchemaMixin.selection
 
     The definition of the :class:`trytond.model.fields.Text` field to store the
@@ -647,9 +717,10 @@ record is equal or not defined.
 
 Instance methods:
 
-.. method:: MatchMixin.match(pattern)
+.. method:: MatchMixin.match(pattern[, match_none])
 
-    Return if the instance match the pattern
+    Return if the instance match the pattern. If `match_none` is set `None`
+    value of the instance will be compared.
 
 ==========
 UnionMixin
@@ -685,7 +756,114 @@ Class methods:
 
     Return the SQL table and columns to use for the UNION for the model name.
 
+================
+sequence_ordered
+================
+
+.. method:: sequence_ordered([field_name, [field_label, [order]]])
+
+Retuns a mixin_ class which defines the order of a :class:`ModelSQL` with an
+:class:`trytond.model.fields.Integer` field. field_name indicates the name of
+the field to be created and its default values is `sequence`. field_label
+defines the label which will be used by the field and defaults to `Sequence`.
+Order specifies the order direction and defaults to `ASC NULLS FIRST`.
+
+===============
+MultiValueMixin
+===============
+
+.. class:: MultiValueMixin
+
+A mixin_ for :class:`Model` to help having
+:class:`trytond.model.fields.MultiValue` fields with multi-values on a
+:class:`ValueMixin`. The values are stored by creating one record per pattern.
+The patterns are the same as those on :class:`MatchMixin`.
+
+Class methods:
+
+.. classmethod:: MultiValueMixin.multivalue_model(field)
+
+    Return the :class:`ValueMixin` on which the values are stored for the
+    field name. The default is class name suffixed by the field name.
+
+.. classmethod:: MultiValueMixin.setter_multivalue(records, name, value, \*\*pattern)
+
+    The setter method for the :class:`trytond.model.fields.Function` fields.
+
+Instance methods:
+
+.. method:: MultiValueMixin.multivalue_records(field)
+
+    Return the list of all :class:`ValueMixin` records linked to the instance.
+    By default, it returns the value of the first found
+    :class:`trytond.model.fields.One2Many` linked to the multivalue model or
+    all the records of this one.
+
+.. method:: MultiValueMixin.multivalue_record(field, \*\*pattern)
+
+    Return a new record of :class:`ValueMixin` linked to the instance.
+
+.. method:: MultiValueMixin.get_multivalue(name, \*\*pattern)
+
+    Return the value of the field `name` for the pattern.
+
+.. method:: MultiValueMixin.set_multivalue(name, value[, save], \*\*pattern)
+
+    Store the value of the field `name` for the pattern.
+    If `save` is true, it will be stored in the database, otherwise the
+    modified :class:`ValueMixin` records are returned unsaved. `save` is true
+    by default.
+
+.. warning::
+    To customize the pattern, both methods must be override the same way.
+..
+
+==========
+ValueMixin
+==========
+
+.. class:: ValueMixin
+
+A mixin_ to store the values of :class:`MultiValueMixin`.
+
+================
+DeactivableMixin
+================
+
+.. class:: DeactivableMixin
+
+A mixin_ to add soft deletion to the model.
+
+Class attributes are:
+
+.. attribute:: DictSchemaMixin.active
+
+    The definition of the :class:`trytond.model.fields.Boolean` field to
+    store soft deletion state. False values will be consideres as soft
+    deletion.
 
 .. _mixin: http://en.wikipedia.org/wiki/Mixin
 .. _JSON: http://en.wikipedia.org/wiki/Json
 .. _UNION: http://en.wikipedia.org/wiki/Union_(SQL)#UNION_operator
+
+====
+tree
+====
+
+.. method:: tree([parent[, name[, separator]]])
+
+Returns a mixin_ class :class:`TreeMixin`. `parent` indicates the name of the
+field that defines the parent of the tree and its default value is `parent`.
+`name` indicates the name of the field that defines the name of the record and
+its default value is `name`. If `separator` is set, the
+:meth:`ModelStorage.get_rec_name` constructs the name by concatenating each
+parent names using it as separator and :meth:`ModelStorage.search_rec_name` is
+adapted to search across the tree.
+
+
+.. class:: TreeMixin
+
+.. classmethod:: TreeMixin.check_recursion(records)
+
+    Helper method that checks if there is no recursion in the tree defined by
+    :meth:`tree`.

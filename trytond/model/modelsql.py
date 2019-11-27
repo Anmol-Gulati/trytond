@@ -1,20 +1,21 @@
 # This file is part of Tryton.  The COPYRIGHT file at the top level of
 # this repository contains the full copyright notices and license terms.
 import datetime
-from itertools import islice, izip, chain, ifilter
-from collections import OrderedDict, defaultdict
+from itertools import islice, chain
+from collections import OrderedDict
+from functools import wraps
 
-from sql import Table, Column, Literal, Desc, Asc, Expression, Null
+from sql import (Table, Column, Literal, Desc, Asc, Expression, Null,
+    NullsFirst, NullsLast)
 from sql.functions import CurrentTimestamp, Extract
 from sql.conditionals import Coalesce
-from sql.operators import Or, And, Operator
+from sql.operators import Or, And, Operator, Equal
 from sql.aggregate import Count, Max
 
 from trytond.model import ModelStorage, ModelView
 from trytond.model import fields
 from trytond import backend
 from trytond.tools import reduce_ids, grouped_slice, cursor_dict
-from trytond.const import OPERATORS
 from trytond.transaction import Transaction
 from trytond.pool import Pool
 from trytond.cache import LRUDict
@@ -22,7 +23,7 @@ from trytond.exceptions import ConcurrencyException, FieldNameError, UserValueEr
 from trytond.rpc import RPC
 from trytond.config import config
 
-from .modelstorage import cache_size
+from .modelstorage import cache_size, is_leaf
 
 
 class Constraint(object):
@@ -76,6 +77,10 @@ class Unique(Constraint):
     def columns(self):
         return self._columns
 
+    @property
+    def operators(self):
+        return tuple(Equal for c in self._columns)
+
     def __str__(self):
         return 'UNIQUE(%s)' % (', '.join(map(str, self.columns)))
 
@@ -87,6 +92,62 @@ class Unique(Constraint):
         return tuple(p)
 
 
+class Exclude(Constraint):
+    __slots__ = ('_excludes', '_where')
+
+    def __init__(self, table, *excludes, **kwargs):
+        super(Exclude, self).__init__(table)
+        assert all(isinstance(c, Expression) and issubclass(o, Operator)
+            for c, o in excludes), excludes
+        self._excludes = tuple(excludes)
+        where = kwargs.get('where')
+        if where is not None:
+            assert isinstance(where, Expression)
+        self._where = where
+
+    @property
+    def excludes(self):
+        return self._excludes
+
+    @property
+    def columns(self):
+        return tuple(c for c, _ in self._excludes)
+
+    @property
+    def operators(self):
+        return tuple(o for _, o in self._excludes)
+
+    @property
+    def where(self):
+        return self._where
+
+    def __str__(self):
+        exclude = ', '.join('%s WITH %s' % (column, operator._operator)
+            for column, operator in self.excludes)
+        where = ''
+        if self.where:
+            where = ' WHERE ' + str(self.where)
+        return 'EXCLUDE (%s)' % exclude + where
+
+    @property
+    def params(self):
+        p = []
+        for column, operator in self._excludes:
+            p.extend(column.params)
+        if self.where:
+            p.extend(self.where.params)
+        return tuple(p)
+
+
+def no_table_query(func):
+    @wraps(func)
+    def wrapper(cls, *args, **kwargs):
+        if callable(cls.table_query):
+            raise NotImplementedError("On table_query")
+        return func(cls, *args, **kwargs)
+    return wrapper
+
+
 class ModelSQL(ModelStorage):
     """
     Define a model with storage in database.
@@ -95,6 +156,7 @@ class ModelSQL(ModelStorage):
     _order = None
     _order_name = None  # Use to force order field when sorting on Many2One
     _history = False
+    table_query = None
 
     @classmethod
     def __setup__(cls):
@@ -116,7 +178,10 @@ class ModelSQL(ModelStorage):
 
     @classmethod
     def __table__(cls):
-        return cls.table_query() or Table(cls._table)
+        if callable(cls.table_query):
+            return cls.table_query()
+        else:
+            return Table(cls._table)
 
     @classmethod
     def __table_history__(cls):
@@ -125,57 +190,48 @@ class ModelSQL(ModelStorage):
         return Table(cls._table + '__history')
 
     @classmethod
+    def __table_handler__(cls, module_name=None, history=False):
+        TableHandler = backend.get('TableHandler')
+        return TableHandler(cls, module_name, history=history)
+
+    @classmethod
     def __register__(cls, module_name):
-        sql_table = cls.__table__()
         cursor = Transaction().connection.cursor()
         TableHandler = backend.get('TableHandler')
         super(ModelSQL, cls).__register__(module_name)
 
-        if cls.table_query():
+        if callable(cls.table_query):
             return
 
         pool = Pool()
+        # Initiate after the callable test to prevent calling table_query which
+        # may rely on other model being registered
+        sql_table = cls.__table__()
 
         # create/update table in the database
-        table = TableHandler(cls, module_name)
+        table = cls.__table_handler__(module_name)
         if cls._history:
-            history_table = TableHandler(cls, module_name, history=True)
+            history_table = cls.__table_handler__(module_name, history=True)
             history_table.index_action('id', action='add')
 
-        for field_name, field in cls._fields.iteritems():
+        for field_name, field in cls._fields.items():
             if field_name == 'id':
                 continue
-            default_fun = None
-            if hasattr(field, 'set'):
-                continue
             sql_type = field.sql_type()
+            if not sql_type:
+                continue
+
+            default = None
             if field_name in cls._defaults:
-                default_fun = cls._defaults[field_name]
+                def default():
+                    default_ = cls._clean_defaults({
+                            field_name: cls._defaults[field_name](),
+                            })[field_name]
+                    return field.sql_format(default_)
 
-                def unpack_wrapper(fun):
-                    def unpack_result(*a):
-                        try:
-                            # XXX ugly hack: some default fct try
-                            # to access the non-existing table
-                            result = fun(*a)
-                        except Exception:
-                            return None
-                        clean_results = cls._clean_defaults(
-                            {field_name: result})
-                        return clean_results[field_name]
-                    return unpack_result
-                default_fun = unpack_wrapper(default_fun)
-
-            if hasattr(field, 'size') and isinstance(field.size, int):
-                field_size = field.size
-            else:
-                field_size = None
-
-            table.add_raw_column(field_name, sql_type, field.sql_format,
-                default_fun, field_size, string=field.string)
+            table.add_column(field_name, field._sql_type, default=default)
             if cls._history:
-                history_table.add_raw_column(field_name, sql_type, None,
-                    string=field.string)
+                history_table.add_column(field_name, field._sql_type)
 
             if isinstance(field, (fields.Integer, fields.Float)):
                 # migration from tryton 2.2
@@ -186,23 +242,37 @@ class ModelSQL(ModelStorage):
 
             if isinstance(field, fields.Many2One):
                 if field.model_name in ('res.user', 'res.group'):
+                    # XXX need to merge ir and res
                     ref = field.model_name.replace('.', '_')
                 else:
-                    ref = pool.get(field.model_name)._table
+                    ref_model = pool.get(field.model_name)
+                    if (issubclass(ref_model, ModelSQL)
+                            and not callable(ref_model.table_query)):
+                        ref = ref_model._table
+                        # Create foreign key table if missing
+                        if not TableHandler.table_exist(ref):
+                            TableHandler(ref_model)
+                    else:
+                        ref = None
                 if field_name in ['create_uid', 'write_uid']:
                     # migration from 3.6
                     table.drop_fk(field_name)
-                else:
+                elif ref:
                     table.add_fk(field_name, ref, field.ondelete)
 
             table.index_action(
                 field_name, action=field.select and 'add' or 'remove')
 
             required = field.required
+            # Do not set 'NOT NULL' for Binary field as the database column
+            # will be left empty if stored in the filestore or filled later by
+            # the set method.
+            if isinstance(field, fields.Binary):
+                required = False
             table.not_null_action(
                 field_name, action=required and 'add' or 'remove')
 
-        for field_name, field in cls._fields.iteritems():
+        for field_name, field in cls._fields.items():
             if isinstance(field, fields.Many2One) \
                     and field.model_name == cls.__name__ \
                     and field.left and field.right:
@@ -223,12 +293,13 @@ class ModelSQL(ModelStorage):
         if cls._history:
             cls._update_history_table()
             history_table = cls.__table_history__()
-            cursor.execute(*sql_table.select(sql_table.id))
+            cursor.execute(*sql_table.select(sql_table.id, limit=1))
             if cursor.fetchone():
-                cursor.execute(*history_table.select(history_table.id))
+                cursor.execute(
+                    *history_table.select(history_table.id, limit=1))
                 if not cursor.fetchone():
-                    columns = [n for n, f in cls._fields.iteritems()
-                        if not hasattr(f, 'set')]
+                    columns = [n for n, f in cls._fields.items()
+                        if f.sql_type()]
                     cursor.execute(*history_table.insert(
                             [Column(history_table, c) for c in columns],
                             sql_table.select(*(Column(sql_table, c)
@@ -238,56 +309,49 @@ class ModelSQL(ModelStorage):
 
     @classmethod
     def _update_history_table(cls):
-        TableHandler = backend.get('TableHandler')
         if cls._history:
-            table = TableHandler(cls)
-            history_table = TableHandler(cls, history=True)
-            for column_name in table._columns:
-                string = ''
-                if column_name in cls._fields:
-                    string = cls._fields[column_name].string
-                history_table.add_raw_column(column_name,
-                    (table._columns[column_name]['typname'],
-                        table._columns[column_name]['typname']),
-                    None, string=string)
+            history_table = cls.__table_handler__(history=True)
+            for field_name, field in cls._fields.items():
+                if not field.sql_type():
+                    continue
+                history_table.add_column(field_name, field._sql_type)
 
     @classmethod
     def _get_error_messages(cls):
         res = super(ModelSQL, cls)._get_error_messages()
-        res += cls._sql_error_messages.values()
+        res += list(cls._sql_error_messages.values())
         for _, _, error in cls._sql_constraints:
             res.append(error)
         return res
 
-    @staticmethod
-    def table_query():
-        return None
-
     @classmethod
-    def __raise_integrity_error(cls, exception, values, field_names=None):
+    def __raise_integrity_error(
+            cls, exception, values, field_names=None, transaction=None):
         pool = Pool()
         TableHandler = backend.get('TableHandler')
         if field_names is None:
-            field_names = cls._fields.keys()
+            field_names = list(cls._fields.keys())
+        if transaction is None:
+            transaction = Transaction()
         for field_name in field_names:
             if field_name not in cls._fields:
                 continue
             field = cls._fields[field_name]
             # Check required fields
             if (field.required
-                    and not hasattr(field, 'set')
+                    and field.sql_type()
                     and field_name not in ('create_uid', 'create_date')):
                 if values.get(field_name) is None:
                     cls.raise_user_error('required_field',
                         error_args=cls._get_error_args(field_name))
             if isinstance(field, fields.Many2One) and values.get(field_name):
                 Model = pool.get(field.model_name)
-                create_records = Transaction().create_records.get(
+                create_records = transaction.create_records.get(
                     field.model_name, set())
-                delete_records = Transaction().delete_records.get(
+                delete_records = transaction.delete_records.get(
                     field.model_name, set())
                 target_records = Model.search([
-                        ('id', '=', values[field_name]),
+                        ('id', '=', field.sql_format(values[field_name])),
                         ], order=[])
                 if not ((target_records
                             or (values[field_name] in create_records))
@@ -299,7 +363,7 @@ class ModelSQL(ModelStorage):
         for name, _, error in cls._sql_constraints:
             if TableHandler.convert_name(name) in str(exception):
                 cls.raise_user_error(error)
-        for name, error in cls._sql_error_messages.iteritems():
+        for name, error in cls._sql_error_messages.items():
             if TableHandler.convert_name(name) in str(exception):
                 cls.raise_user_error(error)
 
@@ -328,7 +392,7 @@ class ModelSQL(ModelStorage):
         revisions = list(chain(*revisions))
         revisions.sort(reverse=True)
         # SQLite uses char for COALESCE
-        if revisions and isinstance(revisions[0][0], basestring):
+        if revisions and isinstance(revisions[0][0], str):
             strptime = datetime.datetime.strptime
             format_ = '%Y-%m-%d %H:%M:%S.%f'
             revisions = [(strptime(timestamp, format_), id_, name)
@@ -336,7 +400,7 @@ class ModelSQL(ModelStorage):
         return revisions
 
     @classmethod
-    def __insert_history(cls, ids, deleted=False):
+    def _insert_history(cls, ids, deleted=False):
         transaction = Transaction()
         cursor = transaction.connection.cursor()
         if not cls._history:
@@ -354,8 +418,8 @@ class ModelSQL(ModelStorage):
                 'write_uid': cls.write_uid,
                 'write_date': cls.write_date,
                 }
-        for fname, field in sorted(fields.iteritems()):
-            if hasattr(field, 'set'):
+        for fname, field in sorted(fields.items()):
+            if not field.sql_type():
                 continue
             columns.append(Column(table, fname))
             hcolumns.append(Column(history, fname))
@@ -384,8 +448,8 @@ class ModelSQL(ModelStorage):
         history = cls.__table_history__()
         columns = []
         hcolumns = []
-        fnames = sorted(n for n, f in cls._fields.iteritems()
-            if not hasattr(f, 'set'))
+        fnames = sorted(n for n, f in cls._fields.items()
+            if f.sql_type())
         for fname in fnames:
             columns.append(Column(table, fname))
             if fname == 'write_uid':
@@ -431,9 +495,9 @@ class ModelSQL(ModelStorage):
             for sub_ids in grouped_slice(to_delete):
                 where = reduce_ids(table.id, sub_ids)
                 cursor.execute(*table.delete(where=where))
-            cls.__insert_history(to_delete, True)
+            cls._insert_history(to_delete, True)
         if to_update:
-            cls.__insert_history(to_update)
+            cls._insert_history(to_update)
 
     @classmethod
     def restore_history(cls, ids, datetime):
@@ -460,11 +524,13 @@ class ModelSQL(ModelStorage):
                         '%s,%s' % (cls.__name__, id_))
                 except KeyError:
                     continue
-                sql_type = fields.Numeric('timestamp').sql_type().base
+                if timestamp is None:
+                    continue
+                sql_type = fields.Char('timestamp').sql_type().base
                 where.append((table.id == id_)
                     & (Extract('EPOCH',
                             Coalesce(table.write_date, table.create_date)
-                            ).cast(sql_type) > timestamp))
+                            ).cast(sql_type) != timestamp))
             if where:
                 cursor.execute(*table.select(
                     table.id, table.write_date, table.write_uid, where=where))
@@ -479,18 +545,15 @@ class ModelSQL(ModelStorage):
                     )
 
     @classmethod
+    @no_table_query
     def create(cls, vlist):
         DatabaseIntegrityError = backend.get('DatabaseIntegrityError')
         transaction = Transaction()
         cursor = transaction.connection.cursor()
         pool = Pool()
         Translation = pool.get('ir.translation')
-        Rule = pool.get('ir.rule')
 
         super(ModelSQL, cls).create(vlist)
-
-        if cls.table_query():
-            raise NotImplementedError('Can not create model with table_query')
 
         table = cls.__table__()
         modified_fields = set()
@@ -529,7 +592,7 @@ class ModelSQL(ModelStorage):
             insert_values = [transaction.user, CurrentTimestamp()]
 
             # Insert record
-            for fname, value in values.iteritems():
+            for fname, value in values.items():
                 field = cls._fields[fname]
                 if not hasattr(field, 'set'):
                     # insert_columns.append(Column(table, fname))
@@ -571,28 +634,13 @@ class ModelSQL(ModelStorage):
                     cls.__raise_integrity_error(exception, values)
             raise
 
-        domain = Rule.domain_get(cls.__name__, mode='create')
-        if domain:
-            tables = {None: (table, None)}
-            tables, expression = cls.search_domain(
-                domain, active_test=False, tables=tables)
-            from_ = convert_from(None, tables)
-            for sub_ids in grouped_slice(new_ids):
-                sub_ids = list(sub_ids)
-                red_sql = reduce_ids(table.id, sub_ids)
-
-                cursor.execute(*from_.select(table.id,
-                        where=red_sql & expression))
-                if len(cursor.fetchall()) != len(sub_ids):
-                    cls.raise_user_error('access_error', cls.__name__)
-
         transaction.create_records.setdefault(cls.__name__,
             set()).update(new_ids)
 
         translation_values = {}
         fields_to_set = {}
-        for values, new_id in izip(vlist, new_ids):
-            for fname, value in values.iteritems():
+        for values, new_id in zip(vlist, new_ids):
+            for fname, value in values.items():
                 field = cls._fields[fname]
                 if (getattr(field, 'translate', False)
                         and not hasattr(field, 'set')):
@@ -609,22 +657,24 @@ class ModelSQL(ModelStorage):
                         args.extend(([new_id], value))
 
         if translation_values:
-            for name, translations in translation_values.iteritems():
+            for name, translations in translation_values.items():
                 Translation.set_ids(name, 'model', Transaction().language,
-                    translations.keys(), translations.values())
+                    list(translations.keys()), list(translations.values()))
 
-        for fname, fargs in fields_to_set.iteritems():
+        for fname in sorted(fields_to_set, key=cls.index_set_field):
+            fargs = fields_to_set[fname]
             field = cls._fields[fname]
             field.set(cls, fname, *fargs)
 
-        cls.__insert_history(new_ids)
+        cls._insert_history(new_ids)
 
+        field_names = list(cls._fields.keys())
+        cls._update_mptt(field_names, [new_ids] * len(field_names))
+
+        cls.__check_domain_rule(new_ids, 'create')
         records = cls.browse(new_ids)
         for sub_records in grouped_slice(records, cache_size()):
             cls._validate(sub_records)
-
-        field_names = cls._fields.keys()
-        cls._update_mptt(field_names, [new_ids] * len(field_names))
 
         cls.trigger_create(records)
         return records
@@ -637,7 +687,7 @@ class ModelSQL(ModelStorage):
         ModelAccess = pool.get('ir.model.access')
         if not fields_names:
             fields_names = []
-            for field_name in cls._fields.keys():
+            for field_name in list(cls._fields.keys()):
                 if ModelAccess.check_relation(cls.__name__, field_name,
                         mode='read'):
                     fields_names.append(field_name)
@@ -670,7 +720,6 @@ class ModelSQL(ModelStorage):
 
         result = []
         table = cls.__table__()
-        table_query = cls.table_query()
 
         in_max = transaction.database.IN_MAX
         history_order = None
@@ -678,7 +727,7 @@ class ModelSQL(ModelStorage):
         history_limit = None
         if (cls._history
                 and transaction.context.get('_datetime')
-                and not table_query):
+                and not callable(cls.table_query)):
             in_max = 1
             table = cls.__table_history__()
             column = Coalesce(table.write_date, table.create_date)
@@ -687,11 +736,11 @@ class ModelSQL(ModelStorage):
             history_limit = 1
 
         columns = []
-        for f in fields_names + fields_related.keys() + datetime_fields:
+        for f in fields_names + list(fields_related.keys()) + datetime_fields:
             field = cls._fields.get(f)
-            if field and not hasattr(field, 'set'):
+            if field and field.sql_type():
                 columns.append(field.sql_column(table).as_(f))
-            elif f == '_timestamp' and not table_query:
+            elif f == '_timestamp' and not callable(cls.table_query):
                 sql_type = fields.Char('timestamp').sql_type().base
                 columns.append(Extract('EPOCH',
                         Coalesce(table.write_date, table.create_date)
@@ -735,22 +784,37 @@ class ModelSQL(ModelStorage):
         else:
             result = [{'id': x} for x in ids]
 
+        cachable_fields = []
         for column in columns:
             # Split the output name to remove SQLite type detection
-            field = column.output_name.split()[0]
-            if field == '_timestamp':
+            fname = column.output_name.split()[0]
+            if fname == '_timestamp':
                 continue
-            if (getattr(cls._fields[field], 'translate', False)
-                    and not hasattr(field, 'set')):
-                translations = Translation.get_ids(cls.__name__ + ',' + field,
-                    'model', Transaction().language, ids)
-                for row in result:
-                    row[field] = translations.get(row['id']) or row[field]
+            field = cls._fields[fname]
+            if not hasattr(field, 'get'):
+                if getattr(field, 'translate', False):
+                    translations = Translation.get_ids(
+                        cls.__name__ + ',' + fname, 'model',
+                        Transaction().language, ids)
+                    for row in result:
+                        row[fname] = translations.get(row['id']) or row[fname]
+                if fname != 'id':
+                    cachable_fields.append(fname)
 
         # all fields for which there is a get attribute
         getter_fields = [f for f in
-            fields_names + fields_related.keys() + datetime_fields
+            fields_names + list(fields_related.keys()) + datetime_fields
             if f in cls._fields and hasattr(cls._fields[f], 'get')]
+
+        if getter_fields and cachable_fields:
+            cache = transaction.get_cache().setdefault(
+                cls.__name__, LRUDict(cache_size()))
+            for row in result:
+                if row['id'] not in cache:
+                    cache[row['id']] = {}
+                for fname in cachable_fields:
+                    cache[row['id']][fname] = row[fname]
+
         func_fields = {}
         for fname in getter_fields:
             field = cls._fields[fname]
@@ -794,7 +858,7 @@ class ModelSQL(ModelStorage):
 
         to_del = set()
         fields_related2values = {}
-        for fname in fields_related.keys() + datetime_fields:
+        for fname in list(fields_related.keys()) + datetime_fields:
             if fname not in fields_names:
                 to_del.add(fname)
             if fname not in cls._fields:
@@ -897,6 +961,7 @@ class ModelSQL(ModelStorage):
         return result
 
     @classmethod
+    @no_table_query
     def write(cls, records, values, *args):
         DatabaseIntegrityError = backend.get('DatabaseIntegrityError')
         transaction = Transaction()
@@ -904,7 +969,6 @@ class ModelSQL(ModelStorage):
         pool = Pool()
         Translation = pool.get('ir.translation')
         Config = pool.get('ir.configuration')
-        Rule = pool.get('ir.rule')
 
         assert not len(args) % 2
         # Remove possible duplicates from all records
@@ -918,12 +982,10 @@ class ModelSQL(ModelStorage):
 
         super(ModelSQL, cls).write(records, values, *args)
 
-        if cls.table_query():
-            raise NotImplementedError(
-                'Can not write on model with table_query')
         table = cls.__table__()
 
         cls.__check_timestamp(all_ids)
+        cls.__check_domain_rule(all_ids, 'write', nodomain='write_error')
 
         fields_to_set = {}
         actions = iter((records, values) + args)
@@ -940,7 +1002,7 @@ class ModelSQL(ModelStorage):
             columns = [table.write_uid, table.write_date]
             update_values = [transaction.user, CurrentTimestamp()]
             store_translation = Transaction().language == Config.get_language()
-            for fname, value in values.iteritems():
+            for fname, value in values.items():
                 try:
                     field = cls._fields[fname]
                 except KeyError:
@@ -955,42 +1017,21 @@ class ModelSQL(ModelStorage):
                         columns.append(Column(table, fname))
                         update_values.append(field.sql_format(value))
 
-            domain = Rule.domain_get(cls.__name__, mode='write')
-            tables = {None: (table, None)}
-            if domain:
-                tables, dom_exp = cls.search_domain(
-                    domain, active_test=False, tables=tables)
-            from_ = convert_from(None, tables)
             for sub_ids in grouped_slice(ids):
-                sub_ids = list(sub_ids)
                 red_sql = reduce_ids(table.id, sub_ids)
-                where = red_sql
-                if domain:
-                    where &= dom_exp
-                cursor.execute(*from_.select(table.id, where=where))
-                rowcount = cursor.rowcount
-                if rowcount == -1 or rowcount is None:
-                    rowcount = len(cursor.fetchall())
-                if not rowcount == len({}.fromkeys(sub_ids)):
-                    if domain:
-                        cursor.execute(*table.select(table.id, where=red_sql))
-                        rowcount = cursor.rowcount
-                        if rowcount == -1 or rowcount is None:
-                            rowcount = len(cursor.fetchall())
-                        if rowcount == len({}.fromkeys(sub_ids)):
-                            cls.raise_user_error('access_error', cls.__name__)
-                    cls.raise_user_error('write_error', cls.__name__)
                 try:
                     cursor.execute(*table.update(columns, update_values,
                             where=red_sql))
-                except DatabaseIntegrityError, exception:
-                    with Transaction().new_transaction() as transaction, \
-                            transaction.set_context(_check_access=False):
-                        cls.__raise_integrity_error(exception, values,
-                            values.keys())
+                except DatabaseIntegrityError as exception:
+                    transaction = Transaction()
+                    with Transaction().new_transaction(), \
+                            Transaction().set_context(_check_access=False):
+                        cls.__raise_integrity_error(
+                            exception, values, list(values.keys()),
+                            transaction=transaction)
                     raise
 
-            for fname, value in values.iteritems():
+            for fname, value in values.items():
                 field = cls._fields[fname]
                 if (getattr(field, 'translate', False)
                         and not hasattr(field, 'set')):
@@ -1000,34 +1041,36 @@ class ModelSQL(ModelStorage):
                 if hasattr(field, 'set'):
                     fields_to_set.setdefault(fname, []).extend((ids, value))
 
-            field_names = values.keys()
+            field_names = list(values.keys())
             cls._update_mptt(field_names, [ids] * len(field_names), values)
             all_field_names |= set(field_names)
 
-        for fname, fargs in fields_to_set.iteritems():
+        for fname in sorted(fields_to_set, key=cls.index_set_field):
+            fargs = fields_to_set[fname]
             field = cls._fields[fname]
             field.set(cls, fname, *fargs)
 
-        cls.__insert_history(all_ids)
+        cls._insert_history(all_ids)
+
+        cls.__check_domain_rule(all_ids, 'write')
         for sub_records in grouped_slice(all_records, cache_size()):
             cls._validate(sub_records, field_names=all_field_names)
+
         cls.trigger_write(trigger_eligibles)
 
     @classmethod
+    @no_table_query
     def delete(cls, records):
         DatabaseIntegrityError = backend.get('DatabaseIntegrityError')
         transaction = Transaction()
         cursor = transaction.connection.cursor()
         pool = Pool()
         Translation = pool.get('ir.translation')
-        Rule = pool.get('ir.rule')
-        ids = map(int, records)
+        ids = list(map(int, records))
 
         if not ids:
             return
 
-        if cls.table_query():
-            raise NotImplementedError('Can not delete model with table_query')
         table = cls.__table__()
 
         if transaction.delete and transaction.delete.get(cls.__name__):
@@ -1037,9 +1080,11 @@ class ModelSQL(ModelStorage):
                     ids.remove(del_id)
 
         cls.__check_timestamp(ids)
+        cls.__check_domain_rule(ids, 'delete')
 
+        has_translation = False
         tree_ids = {}
-        for fname, field in cls._fields.iteritems():
+        for fname, field in cls._fields.items():
             if (isinstance(field, fields.Many2One)
                     and field.model_name == cls.__name__
                     and field.left and field.right):
@@ -1048,16 +1093,19 @@ class ModelSQL(ModelStorage):
                     where = reduce_ids(field.sql_column(table), sub_ids)
                     cursor.execute(*table.select(table.id, where=where))
                     tree_ids[fname] += [x[0] for x in cursor.fetchall()]
+            if (getattr(field, 'translate', False)
+                    and not hasattr(field, 'set')):
+                has_translation = True
 
         foreign_keys_tocheck = []
         foreign_keys_toupdate = []
         foreign_keys_todelete = []
         for _, model in pool.iterobject():
-            if hasattr(model, 'table_query') and model.table_query():
+            if callable(getattr(model, 'table_query', None)):
                 continue
             if not issubclass(model, ModelStorage):
                 continue
-            for field_name, field in model._fields.iteritems():
+            for field_name, field in model._fields.items():
                 if (isinstance(field, fields.Many2One)
                         and field.model_name == cls.__name__):
                     if field.ondelete == 'CASCADE':
@@ -1071,28 +1119,22 @@ class ModelSQL(ModelStorage):
                         foreign_keys_tocheck.append((model, field_name))
 
         transaction.delete.setdefault(cls.__name__, set()).update(ids)
-
-        domain = Rule.domain_get(cls.__name__, mode='delete')
-
-        if domain:
-            tables = {None: (table, None)}
-            tables, dom_exp = cls.search_domain(
-                domain, active_test=False, tables=tables)
-            from_ = convert_from(None, tables)
-            for sub_ids in grouped_slice(ids):
-                sub_ids = list(sub_ids)
-                red_sql = reduce_ids(table.id, sub_ids)
-                cursor.execute(*from_.select(table.id,
-                        where=red_sql & dom_exp))
-                rowcount = cursor.rowcount
-                if rowcount == -1 or rowcount is None:
-                    rowcount = len(cursor.fetchall())
-                if not rowcount == len({}.fromkeys(sub_ids)):
-                    cls.raise_user_error('access_error', cls.__name__)
-
         cls.trigger_delete(records)
 
-        for sub_ids, sub_records in izip(
+        def get_related_records(Model, field_name, sub_ids):
+            if issubclass(Model, ModelSQL):
+                foreign_table = Model.__table__()
+                foreign_red_sql = reduce_ids(
+                    Column(foreign_table, field_name), sub_ids)
+                cursor.execute(*foreign_table.select(foreign_table.id,
+                        where=foreign_red_sql))
+                records = Model.browse([x[0] for x in cursor.fetchall()])
+            else:
+                with transaction.set_context(active_test=False):
+                    records = Model.search([(field_name, 'in', sub_ids)])
+            return records
+
+        for sub_ids, sub_records in zip(
                 grouped_slice(ids), grouped_slice(records)):
             sub_ids = list(sub_ids)
             red_sql = reduce_ids(table.id, sub_ids)
@@ -1104,14 +1146,9 @@ class ModelSQL(ModelStorage):
                 if (not hasattr(Model, 'search')
                         or not hasattr(Model, 'write')):
                     continue
-                foreign_table = Model.__table__()
-                foreign_red_sql = reduce_ids(
-                    Column(foreign_table, field_name), sub_ids)
-                cursor.execute(*foreign_table.select(foreign_table.id,
-                        where=foreign_red_sql))
-                models = Model.browse([x[0] for x in cursor.fetchall()])
-                if models:
-                    Model.write(models, {
+                records = get_related_records(Model, field_name, sub_ids)
+                if records:
+                    Model.write(records, {
                             field_name: None,
                             })
 
@@ -1119,14 +1156,9 @@ class ModelSQL(ModelStorage):
                 if (not hasattr(Model, 'search')
                         or not hasattr(Model, 'delete')):
                     continue
-                foreign_table = Model.__table__()
-                foreign_red_sql = reduce_ids(
-                    Column(foreign_table, field_name), sub_ids)
-                cursor.execute(*foreign_table.select(foreign_table.id,
-                        where=foreign_red_sql))
-                models = Model.browse([x[0] for x in cursor.fetchall()])
-                if models:
-                    Model.delete(models)
+                records = get_related_records(Model, field_name, sub_ids)
+                if records:
+                    Model.delete(records)
 
             for Model, field_name in foreign_keys_tocheck:
                 with Transaction().set_context(_check_access=False):
@@ -1141,16 +1173,48 @@ class ModelSQL(ModelStorage):
 
             try:
                 cursor.execute(*table.delete(where=red_sql))
-            except DatabaseIntegrityError, exception:
+            except DatabaseIntegrityError as exception:
+                transaction = Transaction()
                 with Transaction().new_transaction():
-                    cls.__raise_integrity_error(exception, {})
+                    cls.__raise_integrity_error(
+                        exception, {}, transaction=transaction)
                 raise
 
-        Translation.delete_ids(cls.__name__, 'model', ids)
+        if has_translation:
+            Translation.delete_ids(cls.__name__, 'model', ids)
 
-        cls.__insert_history(ids, deleted=True)
+        cls._insert_history(ids, deleted=True)
 
-        cls._update_mptt(tree_ids.keys(), tree_ids.values())
+        cls._update_mptt(list(tree_ids.keys()), list(tree_ids.values()))
+
+    @classmethod
+    def __check_domain_rule(cls, ids, mode, nodomain=None):
+        pool = Pool()
+        Rule = pool.get('ir.rule')
+        table = cls.__table__()
+        cursor = Transaction().connection.cursor()
+
+        domain = Rule.domain_get(cls.__name__, mode=mode)
+        tables = {None: (table, None)}
+        if domain or nodomain:
+            if domain:
+                tables, dom_exp = cls.search_domain(
+                    domain, active_test=False, tables=tables)
+            from_ = convert_from(None, tables)
+            for sub_ids in grouped_slice(ids):
+                sub_ids = list(set(sub_ids))
+                where = reduce_ids(table.id, sub_ids)
+                if domain:
+                    where &= dom_exp
+                cursor.execute(*from_.select(table.id, where=where))
+                rowcount = cursor.rowcount
+                if rowcount == -1 or rowcount is None:
+                    rowcount = len(cursor.fetchall())
+                if rowcount != len(sub_ids):
+                    if domain:
+                        cls.raise_user_error('access_error', cls.__name__)
+                    else:
+                        cls.raise_user_error(nodomain, cls.__name__)
 
     @classmethod
     def search(cls, domain, offset=0, limit=None, order=None, count=False,
@@ -1159,6 +1223,9 @@ class ModelSQL(ModelStorage):
         Rule = pool.get('ir.rule')
         transaction = Transaction()
         cursor = transaction.connection.cursor()
+
+        super(ModelSQL, cls).search(
+            domain, offset=offset, limit=limit, order=order, count=count)
 
         # Get domain clauses
         tables, expression = cls.search_domain(domain)
@@ -1169,14 +1236,25 @@ class ModelSQL(ModelStorage):
             'DESC': Desc,
             'ASC': Asc,
             }
+        null_ordering_types = {
+            'NULLS FIRST': NullsFirst,
+            'NULLS LAST': NullsLast,
+            None: lambda _: _
+            }
         if order is None or order is False:
             order = cls._order
         for oexpr, otype in order:
             fname, _, extra_expr = oexpr.partition('.')
             field = cls._fields[fname]
-            Order = order_types[otype.upper()]
+            otype = otype.upper()
+            try:
+                otype, null_ordering = otype.split(' ', 1)
+            except ValueError:
+                null_ordering = None
+            Order = order_types[otype]
+            NullOrdering = null_ordering_types[null_ordering]
             forder = field.convert_order(oexpr, tables, cls)
-            order_by.extend((Order(o) for o in forder))
+            order_by.extend((NullOrdering(Order(o)) for o in forder))
 
         # construct a clause for the rules :
         domain = Rule.domain_get(cls.__name__, mode='read')
@@ -1189,7 +1267,7 @@ class ModelSQL(ModelStorage):
         table = convert_from(None, tables)
 
         if count:
-            cursor.execute(*table.select(Count(Literal(1)),
+            cursor.execute(*table.select(Count(Literal('*')),
                     where=expression, limit=limit, offset=offset))
             return cursor.fetchone()[0]
         # execute the "main" query to fetch the ids we were searching for
@@ -1202,12 +1280,12 @@ class ModelSQL(ModelStorage):
             columns.append(Column(main_table, '__id').as_('__id'))
         if not query:
             columns += [f.sql_column(main_table).as_(n)
-                for n, f in cls._fields.iteritems()
+                for n, f in cls._fields.items()
                 if not hasattr(f, 'get')
                 and n != 'id'
                 and not getattr(f, 'translate', False)
                 and f.loading == 'eager']
-            if not cls.table_query():
+            if not callable(cls.table_query):
                 sql_type = fields.Char('timestamp').sql_type().base
                 columns += [Extract('EPOCH',
                         Coalesce(main_table.write_date, main_table.create_date)
@@ -1254,14 +1332,14 @@ class ModelSQL(ModelStorage):
                             <= transaction.context['_datetime'])))
                 for deleted_id, delete_date in cursor.fetchall():
                     history_date, _ = ids_history[deleted_id]
-                    if isinstance(history_date, basestring):
+                    if isinstance(history_date, str):
                         strptime = datetime.datetime.strptime
                         format_ = '%Y-%m-%d %H:%M:%S.%f'
                         history_date = strptime(history_date, format_)
                     if history_date <= delete_date:
                         to_delete.add(deleted_id)
 
-            return ifilter(lambda r: history_key(r) == ids_history[r['id']]
+            return filter(lambda r: history_key(r) == ids_history[r['id']]
                 and r['id'] not in to_delete, rows)
 
         # Can not cache the history value if we are not sure to have fetch all
@@ -1274,7 +1352,7 @@ class ModelSQL(ModelStorage):
                 if data['id'] in delete_records:
                     continue
                 if keys is None:
-                    keys = data.keys()
+                    keys = list(data.keys())
                     for k in keys[:]:
                         if k in ('_timestamp', '_datetime', '__id'):
                             keys.remove(k)
@@ -1317,12 +1395,6 @@ class ModelSQL(ModelStorage):
                 tables[None] = (cls.__table_history__(), None)
             else:
                 tables[None] = (cls.__table__(), None)
-
-        def is_leaf(expression):
-            return (isinstance(expression, (list, tuple))
-                and len(expression) > 2
-                and isinstance(expression[1], basestring)
-                and expression[1] in OPERATORS)  # TODO remove OPERATORS test
 
         def convert(domain):
             if is_leaf(domain):
@@ -1371,7 +1443,8 @@ class ModelSQL(ModelStorage):
                         condition=Column(table, field_name) == parent.id
                         ).select(table.id,
                         where=(Column(parent, field.left) == 0)
-                        & (Column(parent, field.right) == 0)))
+                        & (Column(parent, field.right) == 0),
+                        limit=1))
                 nested_create = cursor.fetchone()
 
                 if not nested_create and len(ids) < 2:
@@ -1469,39 +1542,49 @@ class ModelSQL(ModelStorage):
     def validate(cls, records):
         super(ModelSQL, cls).validate(records)
         transaction = Transaction()
+        database = transaction.database
+        connection = transaction.connection
+        has_constraint = database.has_constraint
+        lock = database.lock
         cursor = transaction.connection.cursor()
-        if transaction.database.has_constraint():
-            return
         # Works only for a single transaction
-        ids = map(int, records)
+        ids = list(map(int, records))
         for _, sql, error in cls._sql_constraints:
+            if has_constraint(sql):
+                continue
             table = sql.table
-            if isinstance(sql, Unique):
-                columns = [Column(table, c.name) for c in sql.columns]
+            if isinstance(sql, (Unique, Exclude)):
+                lock(connection, cls._table)
+                columns = list(sql.columns)
                 columns.insert(0, table.id)
                 in_max = transaction.database.IN_MAX // (len(columns) + 1)
                 for sub_ids in grouped_slice(ids, in_max):
-                    red_sql = reduce_ids(table.id, sub_ids)
+                    where = reduce_ids(table.id, sub_ids)
+                    if isinstance(sql, Exclude) and sql.where:
+                        where &= sql.where
 
-                    cursor.execute(*table.select(*columns, where=red_sql))
+                    cursor.execute(*table.select(*columns, where=where))
 
                     where = Literal(False)
                     for row in cursor.fetchall():
                         clause = table.id != row[0]
-                        for column, value in zip(sql.columns, row[1:]):
+                        for column, operator, value in zip(
+                                sql.columns, sql.operators, row[1:]):
                             if value is None:
                                 # NULL is always unique
                                 clause &= Literal(False)
-                            clause &= Column(table, column.name) == value
+                            clause &= operator(column, value)
                         where |= clause
-                    cursor.execute(*table.select(table.id, where=where))
+                    cursor.execute(
+                        *table.select(table.id, where=where, limit=1))
                     if cursor.fetchone():
                         cls.raise_user_error(error)
             elif isinstance(sql, Check):
                 for sub_ids in grouped_slice(ids):
                     red_sql = reduce_ids(table.id, sub_ids)
                     cursor.execute(*table.select(table.id,
-                            where=~sql.expression & red_sql))
+                            where=~sql.expression & red_sql,
+                            limit=1))
                     if cursor.fetchone():
                         cls.raise_user_error(error)
 
@@ -1513,7 +1596,7 @@ def convert_from(table, tables):
         table = table.join(right, 'LEFT', condition)
     else:
         table = right
-    for k, sub_tables in tables.iteritems():
+    for k, sub_tables in tables.items():
         if k is None:
             continue
         table = convert_from(table, sub_tables)

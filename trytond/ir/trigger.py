@@ -5,10 +5,10 @@ import time
 from sql import Literal, Null
 from sql.aggregate import Count, Max
 
-from ..model import ModelView, ModelSQL, fields, EvalEnvironment, Check
+from ..model import (
+    ModelView, ModelSQL, DeactivableMixin, fields, EvalEnvironment, Check)
 from ..pyson import Eval, PYSONDecoder
 from ..tools import grouped_slice
-from .. import backend
 from ..tools import reduce_ids
 from ..transaction import Transaction
 from ..cache import Cache
@@ -19,11 +19,10 @@ __all__ = [
     ]
 
 
-class Trigger(ModelSQL, ModelView):
+class Trigger(DeactivableMixin, ModelSQL, ModelView):
     "Trigger"
     __name__ = 'ir.trigger'
     name = fields.Char('Name', required=True, translate=True)
-    active = fields.Boolean('Active', select=True)
     model = fields.Many2One('ir.model', 'Model', required=True, select=True)
     on_time = fields.Boolean('On Time', select=True, states={
             'invisible': (Eval('on_create', False)
@@ -73,9 +72,8 @@ class Trigger(ModelSQL, ModelView):
 
     @classmethod
     def __register__(cls, module_name):
-        TableHandler = backend.get('TableHandler')
         cursor = Transaction().connection.cursor()
-        table = TableHandler(cls, module_name)
+        table = cls.__table_handler__(cls, module_name)
         sql_table = cls.__table__()
 
         super(Trigger, cls).__register__(module_name)
@@ -112,10 +110,6 @@ class Trigger(ModelSQL, ModelView):
                         'condition': trigger.condition,
                         'trigger': trigger.rec_name,
                         })
-
-    @staticmethod
-    def default_active():
-        return True
 
     @staticmethod
     def default_limit_number():
@@ -163,7 +157,7 @@ class Trigger(ModelSQL, ModelView):
                 ('model.model', '=', model_name),
                 ('on_%s' % mode, '=', True),
                 ])
-        cls._get_triggers_cache.set(key, map(int, triggers))
+        cls._get_triggers_cache.set(key, list(map(int, triggers)))
         return triggers
 
     @staticmethod
@@ -189,7 +183,7 @@ class Trigger(ModelSQL, ModelView):
         ActionModel = pool.get(trigger.action_model.model)
         cursor = Transaction().connection.cursor()
         trigger_log = TriggerLog.__table__()
-        ids = map(int, records)
+        ids = list(map(int, records))
 
         # Filter on limit_number
         if trigger.limit_number:
@@ -226,12 +220,12 @@ class Trigger(ModelSQL, ModelView):
                         new_ids.append(record_id)
                         continue
                     # SQLite return string for MAX
-                    if isinstance(delay[record_id], basestring):
+                    if isinstance(delay[record_id], str):
                         datepart, timepart = delay[record_id].split(" ")
                         year, month, day = map(int, datepart.split("-"))
                         timepart_full = timepart.split(".")
-                        hours, minutes, seconds = map(int,
-                            timepart_full[0].split(":"))
+                        hours, minutes, seconds = map(
+                            int, timepart_full[0].split(":"))
                         if len(timepart_full) == 2:
                             microseconds = int(timepart_full[1])
                         else:
@@ -304,8 +298,7 @@ class TriggerLog(ModelSQL):
 
     @classmethod
     def __register__(cls, module_name):
-        TableHandler = backend.get('TableHandler')
         super(TriggerLog, cls).__register__(module_name)
 
-        table = TableHandler(cls, module_name)
+        table = cls.__table_handler__(module_name)
         table.index_action(['trigger', 'record_id'], 'add')

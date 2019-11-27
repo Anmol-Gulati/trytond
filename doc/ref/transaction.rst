@@ -51,6 +51,13 @@ commited.
     transaction will be committed when exiting the `with` statement without
     exception. The other cases will be rollbacked.
 
+.. method:: Transaction.stop([commit])
+
+    Stop the transaction. If commit is True, the transaction will be committed
+    otherwise it will be rollbacked.
+    The `context manager`_ returned by :meth:`Transaction.start` should be used
+    instead of calling this method.
+
 .. method:: Transaction.set_context(context, \**kwargs)
 
     Update the transaction context and return a `context manager`_. The context
@@ -95,6 +102,12 @@ commited.
     This method returns the registered datamanager. It could be a different yet
     equivalent (in term of python equality) datamanager than the one passed to the
     method.
+
+.. method:: Transaction.atexit(func, \*args, \*\*kwargs)
+
+    Register a function to be executed upon normal transaction termination.
+    The function can not use the current transaction because it will be already
+    committed or rollbacked.
 
 .. _`context manager`: http://docs.python.org/reference/datamodel.html#context-managers
 .. _`PEP-0249`: https://www.python.org/dev/peps/pep-0249/

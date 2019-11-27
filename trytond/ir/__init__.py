@@ -8,7 +8,6 @@ from .sequence import *
 from .ui.menu import *
 from .ui.view import *
 from .ui.icon import *
-from .property import *
 from .action import *
 from .model import *
 from .attachment import *
@@ -23,7 +22,6 @@ from .date import *
 from .trigger import *
 from .session import *
 from . import queue
-from .kvstore import *
 
 
 def register():
@@ -48,7 +46,6 @@ def register():
         ViewTreeState,
         ViewSearch,
         Icon,
-        Property,
         Action,
         ActionKeyword,
         ActionReport,
@@ -62,6 +59,9 @@ def register():
         ModelAccess,
         ModelFieldAccess,
         ModelButton,
+        ModelButtonRule,
+        ModelButtonClick,
+        ModelButtonReset,
         ModelData,
         PrintModelGraphStart,
         Activity,
@@ -80,8 +80,8 @@ def register():
         ModuleConfigWizardFirst,
         ModuleConfigWizardOther,
         ModuleConfigWizardDone,
-        ModuleInstallUpgradeStart,
-        ModuleInstallUpgradeDone,
+        ModuleActivateUpgradeStart,
+        ModuleActivateUpgradeDone,
         Cache,
         Date,
         Trigger,
@@ -89,17 +89,17 @@ def register():
         Session,
         SessionWizard,
         queue.Queue,
-        KeyValueStore,
         module='ir', type_='model')
     Pool.register(
         TranslationSet,
         TranslationClean,
         TranslationUpdate,
         TranslationExport,
+        TranslationReport,
         ShowView,
         PrintModelGraph,
         ModuleConfigWizard,
-        ModuleInstallUpgrade,
+        ModuleActivateUpgrade,
         ModuleConfig,
         module='ir', type_='wizard')
     Pool.register(

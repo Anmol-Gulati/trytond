@@ -34,6 +34,19 @@ class Queue(ModelSQL):
     def default_enqueued_at(cls):
         return datetime.datetime.utcnow()
 
+    def __register__(cls, module_name):
+        queue = cls.__table__()
+        super().__register__(module_name)
+        table_h = cls.__table_handler__(module_name)
+
+        # Add index for candidates
+        table_h.index_action([
+                queue.scheduled_at.nulls_first,
+                queue.expected_at.nulls_first,
+                queue.dequeued_at,
+                queue.name,
+                ], action='add')
+
     @classmethod
     def copy(cls, records, default=None):
         if default is None:

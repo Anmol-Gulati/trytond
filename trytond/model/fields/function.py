@@ -3,6 +3,7 @@
 
 import inspect
 import copy
+
 from trytond.model.fields.field import Field
 from trytond.tools import is_instance_method
 from trytond.transaction import Transaction
@@ -58,19 +59,25 @@ class Function(Field):
                 return
         setattr(self._field, name, value)
 
-    @property
+    def set_rpc(self, model):
+        self._field.set_rpc(model)
+
+    def sql_format(self, value):
+        return self._field.sql_format(value)
+
     def sql_type(self):
-        raise AttributeError
+        return None
 
     def convert_domain(self, domain, tables, Model):
         table, _ = tables[None]
         name, operator, value = domain[:3]
-        method = getattr(Model, 'domain_%s' % name, None)
-        if name == self.name and method:
+        assert name.startswith(self.name)
+        method = getattr(Model, 'domain_%s' % self.name, None)
+        if method:
             return method(domain, tables)
-        if not self.searcher:
-            Model.raise_user_error('search_function_missing', name)
-        return getattr(Model, self.searcher)(name, domain)
+        if self.searcher:
+            return getattr(Model, self.searcher)(self.name, domain)
+        Model.raise_user_error('search_function_missing', self.name)
 
     def get(self, ids, Model, name, values=None):
         '''
@@ -81,6 +88,8 @@ class Function(Field):
         with Transaction().set_context(_check_access=False):
             method = getattr(Model, self.getter)
             instance_method = is_instance_method(Model, self.getter)
+            signature = inspect.signature(method)
+            uses_names = 'names' in signature.parameters
 
             def call(name):
                 records = Model.browse(ids)
@@ -90,13 +99,11 @@ class Function(Field):
                     return dict((r.id, method(r, name)) for r in records)
             if isinstance(name, list):
                 names = name
-                # Test is the function works with a list of names
-                if 'names' in inspect.getargspec(method)[0]:
+                if uses_names:
                     return call(names)
                 return dict((name, call(name)) for name in names)
             else:
-                # Test is the function works with a list of names
-                if 'names' in inspect.getargspec(method)[0]:
+                if uses_names:
                     name = [name]
                 return call(name)
 

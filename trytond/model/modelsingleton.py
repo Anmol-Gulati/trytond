@@ -1,6 +1,7 @@
 # This file is part of Tryton.  The COPYRIGHT file at the top level of
 # this repository contains the full copyright notices and license terms.
 from trytond.model import ModelStorage
+from trytond.transaction import Transaction
 
 
 class ModelSingleton(ModelStorage):
@@ -31,14 +32,14 @@ class ModelSingleton(ModelStorage):
         singleton = cls.get_singleton()
         if not singleton:
             if not fields_names:
-                fields_names = cls._fields.keys()
+                fields_names = list(cls._fields.keys())
             fname_no_rec_name = [f for f in fields_names if '.' not in f]
             res = cls.default_get(fname_no_rec_name,
                 with_rec_name=len(fname_no_rec_name) != len(fields_names))
             for field_name in fields_names:
                 if field_name not in res:
                     res[field_name] = None
-            for field_name in res.keys():
+            for field_name in list(res.keys()):
                 if field_name not in fields_names:
                     del res[field_name]
             res['id'] = ids[0]
@@ -57,14 +58,26 @@ class ModelSingleton(ModelStorage):
         args = []
         for values in actions[1:None:2]:
             args.extend(([singleton], values))
-        return super(ModelSingleton, cls).write(*args)
+        super(ModelSingleton, cls).write(*args)
+        # Clean local cache of original records
+        for record in sum(actions[0:None:2], []):
+            local_cache = record._local_cache.get(record.id)
+            if local_cache:
+                local_cache.clear()
+        # Clean transaction cache of all ids
+        for cache in Transaction().cache.values():
+            if cls.__name__ in cache:
+                cache[cls.__name__].clear()
 
     @classmethod
     def delete(cls, records):
         singleton = cls.get_singleton()
-        if not singleton:
-            return
-        return super(ModelSingleton, cls).delete([singleton])
+        if singleton:
+            super(ModelSingleton, cls).delete([singleton])
+        # Clean transaction cache of all ids
+        for cache in Transaction().cache.values():
+            if cls.__name__ in cache:
+                cache[cls.__name__].clear()
 
     @classmethod
     def copy(cls, records, default=None):
@@ -97,6 +110,6 @@ class ModelSingleton(ModelStorage):
                     if cls._fields[field]._type in ('many2one',):
                         fields_names.append(field + '.rec_name')
             default, = cls.read([singleton.id], fields_names=fields_names)
-            for field in (x for x in default.keys() if x not in fields_names):
+            for field in (x for x in list(default.keys()) if x not in fields_names):
                 del default[field]
         return default

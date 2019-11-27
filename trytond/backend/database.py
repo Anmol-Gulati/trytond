@@ -1,7 +1,11 @@
 # This file is part of Tryton.  The COPYRIGHT file at the top level of
 # this repository contains the full copyright notices and license terms.
+from collections import namedtuple
+
 DatabaseIntegrityError = None
 DatabaseOperationalError = None
+
+SQLType = namedtuple('SQLType', 'base type')
 
 
 class DatabaseInterface(object):
@@ -65,28 +69,7 @@ class DatabaseInterface(object):
         '''
         raise NotImplementedError
 
-    @staticmethod
-    def dump(database_name):
-        '''
-        Dump a database
-
-        :param database_name: the database name
-        :return: the dump
-        '''
-        raise NotImplementedError
-
-    @staticmethod
-    def restore(database_name, data):
-        '''
-        Restore a database
-
-        :param database_name: the database name
-        :param data: the data
-        :return: True if succeed
-        '''
-        raise NotImplementedError
-
-    def list(self):
+    def list(self, hostname=None):
         '''
         Get the list of database
 
@@ -100,7 +83,7 @@ class DatabaseInterface(object):
         '''
         raise NotImplementedError
 
-    def test(self):
+    def test(self, hostname=None):
         '''
         Test if it is a Tryton database.
         '''
@@ -156,7 +139,7 @@ class DatabaseInterface(object):
         """Return SQL function to lock resource"""
         raise NotImplementedError
 
-    def has_constraint(self):
+    def has_constraint(self, constraint):
         '''
         Return True if database handle constraint.
 
@@ -177,6 +160,73 @@ class DatabaseInterface(object):
         'Return True if database supports multirow insert'
         return False
 
+    def has_select_for(self):
+        "Return if database supports FOR UPDATE/SHARE clause in SELECT."
+        return False
+
+    def has_window_functions(self):
+        "Return if database supports window functions."
+        return False
+
+    def has_unaccent(self):
+        "Return if database supports unaccentuated searches"
+        return False
+
+    def unaccent(self, value):
+        "Return the expression to use for unaccentuated columns"
+        return value
+
+    @classmethod
+    def has_sequence(cls):
+        "Return if database supports sequence querying and assignation"
+        return False
+
+    def sequence_exist(self, connection, name):
+        "Return if a sequence exists"
+        if not self.has_sequence():
+            return
+        raise NotImplementedError
+
+    def sequence_create(
+            self, connection, name, number_increment=1, start_value=1):
+        "Creates a sequence"
+        if not self.has_sequence():
+            return
+        raise NotImplementedError
+
+    def sequence_update(
+            self, connection, name, number_increment=1, start_value=1):
+        "Modifies a sequence"
+        if not self.has_sequence():
+            return
+        raise NotImplementedError
+
+    def sequence_rename(self, connection, old_name, new_name):
+        "Renames a sequence"
+        if not self.has_sequence():
+            return
+        raise NotImplementedError
+
+    def sequence_delete(self, connection, name):
+        "Removes a sequence"
+        if not self.has_sequence():
+            return
+        raise NotImplementedError
+
+    def sequence_next_number(self, connection, name):
+        "Gets the next number of a sequence"
+        if not self.has_sequence():
+            return
+        raise NotImplementedError
+
     def has_channel(self):
         "Return True if database supports LISTEN/NOTIFY channel"
         return False
+
+    def sql_type(self, type_):
+        'Return the SQLType tuple corresponding to the SQL type'
+        pass
+
+    def sql_format(self, type_, value):
+        'Return value correctly casted into type_'
+        pass

@@ -6,12 +6,12 @@ Miscelleanous tools used by tryton
 """
 import os
 import sys
-import subprocess
 from array import array
 from itertools import islice
 import types
 import io
 import warnings
+import importlib
 
 from sql import Literal
 from sql.operators import Or
@@ -19,43 +19,10 @@ from sql.operators import Or
 from trytond.const import OPERATORS
 
 
-def find_in_path(name):
-    if os.name == "nt":
-        sep = ';'
-    else:
-        sep = ':'
-    path = [directory for directory in os.environ['PATH'].split(sep)
-            if os.path.isdir(directory)]
-    for directory in path:
-        val = os.path.join(directory, name)
-        if os.path.isfile(val) or os.path.islink(val):
-            return val
-    return name
-
-
-def exec_command_pipe(name, *args, **kwargs):
-    prog = find_in_path(name)
-    if not prog:
-        raise Exception('Couldn\'t find %s' % name)
-    if os.name == "nt":
-        cmd = '"' + prog + '" ' + ' '.join(args)
-    else:
-        cmd = prog + ' ' + ' '.join(args)
-    child_env = dict(os.environ)
-    if kwargs.get('env'):
-        child_env.update(kwargs['env'])
-    return subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE, env=child_env)
-
-
 def file_open(name, mode="r", subdir='modules', encoding=None):
     """Open a file from the root dir, using a subdir folder."""
     from trytond.modules import EGG_MODULES
-    if sys.version_info < (3,):
-        filename = __file__.decode(sys.getfilesystemencoding())
-    else:
-        filename = __file__
-    root_path = os.path.dirname(os.path.dirname(os.path.abspath(filename)))
+    root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     def secure_join(root, *paths):
         "Join paths and ensure it still below root"
@@ -72,12 +39,14 @@ def file_open(name, mode="r", subdir='modules', encoding=None):
             epoint = EGG_MODULES[module_name]
             mod_path = os.path.join(epoint.dist.location,
                     *epoint.module_name.split('.')[:-1])
+            mod_path = os.path.abspath(mod_path)
             egg_name = secure_join(mod_path, name)
             if not os.path.isfile(egg_name):
                 # Find module in path
                 for path in sys.path:
                     mod_path = os.path.join(path,
                             *epoint.module_name.split('.')[:-1])
+                    mod_path = os.path.abspath(mod_path)
                     egg_name = secure_join(mod_path, name)
                     if os.path.isfile(egg_name):
                         break
@@ -112,11 +81,11 @@ def get_smtp_server():
     :return: A SMTP instance. The quit() method must be call when all
     the calls to sendmail() have been made.
     """
-    from ..sendmail import _get_smtp_server
+    from ..sendmail import get_smtp_server
     warnings.warn(
         'get_smtp_server is deprecated use trytond.sendmail',
         DeprecationWarning)
-    return _get_smtp_server()
+    return get_smtp_server()
 
 
 def memoize(maxsize):
@@ -143,11 +112,11 @@ def memoize(maxsize):
 
     def wrap(fct):
         cache = {}
-        keys = [None for i in xrange(maxsize)]
+        keys = [None for i in range(maxsize)]
         seg_size = maxsize // 4
 
-        pointers = [i * seg_size for i in xrange(4)]
-        max_pointers = [(i + 1) * seg_size for i in xrange(3)] + [maxsize]
+        pointers = [i * seg_size for i in range(4)]
+        max_pointers = [(i + 1) * seg_size for i in range(3)] + [maxsize]
 
         def wrapper(*args):
             key = repr(args)
@@ -182,23 +151,6 @@ def memoize(maxsize):
     return wrap
 
 
-def mod10r(number):
-    """
-    Recursive mod10
-
-    :param number: a number
-    :return: the same number completed with the recursive modulo base 10
-    """
-    codec = [0, 9, 4, 6, 8, 2, 7, 1, 3, 5]
-    report = 0
-    result = ""
-    for digit in number:
-        result += digit
-        if digit.isdigit():
-            report = codec[(int(digit) + report) % 10]
-    return result + str((10 - report) % 10)
-
-
 def reduce_ids(field, ids):
     '''
     Return a small SQL expression for the list of ids and the sql column
@@ -208,7 +160,7 @@ def reduce_ids(field, ids):
         return Literal(False)
     assert all(x.is_integer() for x in ids if isinstance(x, float)), \
         'ids must be integer'
-    ids = map(int, ids)
+    ids = list(map(int, ids))
     ids.sort()
     prev = ids.pop(0)
     continue_list = [prev, prev]
@@ -244,7 +196,7 @@ def reduce_domain(domain):
     if not domain:
         return []
     operator = 'AND'
-    if isinstance(domain[0], basestring):
+    if isinstance(domain[0], str):
         operator = domain[0]
         domain = domain[1:]
     result = [operator]
@@ -273,7 +225,8 @@ def grouped_slice(records, count=None):
     from trytond.transaction import Transaction
     if count is None:
         count = Transaction().database.IN_MAX
-    for i in xrange(0, len(records), count):
+    count = max(1, count)
+    for i in range(0, len(records), count):
         yield islice(records, i, i + count)
 
 
@@ -282,3 +235,17 @@ def is_instance_method(cls, method):
         type_ = klass.__dict__.get(method)
         if type_ is not None:
             return isinstance(type_, types.FunctionType)
+
+
+def resolve(name):
+    "Resolve a dotted name to a global object."
+    name = name.split('.')
+    used = name.pop(0)
+    found = importlib.import_module(used)
+    for n in name:
+        used = used + '.' + n
+        try:
+            found = getattr(found, n)
+        except AttributeError:
+            found = importlib.import_module(used)
+    return found

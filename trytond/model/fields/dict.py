@@ -1,12 +1,8 @@
 # This file is part of Tryton.  The COPYRIGHT file at the toplevel of this
 # repository contains the full copyright notices and license terms.
-try:
-    import simplejson as json
-except ImportError:
-    import json
-from sql import Query, Expression
+import json
 
-from .field import Field, SQLType
+from .field import Field
 from ...protocols.jsonrpc import JSONDecoder, JSONEncoder
 from ...pool import Pool
 from ...tools import grouped_slice
@@ -15,6 +11,7 @@ from ...tools import grouped_slice
 class Dict(Field):
     'Define dict field.'
     _type = 'dict'
+    _sql_type = 'TEXT'
 
     def __init__(self, schema_model, string='', help='', required=False,
             readonly=False, domain=None, states=None, select=False,
@@ -28,22 +25,21 @@ class Dict(Field):
     def get(self, ids, model, name, values=None):
         dicts = dict((id, None) for id in ids)
         for value in values or []:
-            if value[name]:
-                dicts[value['id']] = json.loads(value[name],
-                    object_hook=JSONDecoder())
+            data = value[name]
+            if data:
+                # If stored as JSON conversion is done on backend
+                if isinstance(data, str):
+                    data = json.loads(data, object_hook=JSONDecoder())
+                dicts[value['id']] = data
         return dicts
 
-    @staticmethod
-    def sql_format(value):
-        if isinstance(value, (Query, Expression)):
-            return value
+    def sql_format(self, value):
         if value is None:
             return None
         assert isinstance(value, dict)
-        return json.dumps(value, cls=JSONEncoder)
-
-    def sql_type(self):
-        return SQLType('TEXT', 'TEXT')
+        # Use canonical form
+        return json.dumps(
+            value, cls=JSONEncoder, separators=(',', ':'), sort_keys=True)
 
     def translated(self, name=None, type_='values'):
         "Return a descriptor for the translated value of the field"
@@ -90,4 +86,4 @@ class TranslatedDict(object):
         elif self.type_ == 'values':
             trans = {k['name']: dict(k['selection']) for k in keys}
             return {k: v if k not in trans else trans[k].get(v, v)
-                for k, v in value.iteritems()}
+                for k, v in value.items()}

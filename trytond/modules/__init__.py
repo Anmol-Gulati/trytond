@@ -2,21 +2,21 @@
 # this repository contains the full copyright notices and license terms.
 import os
 import sys
+import importlib
 import itertools
 import logging
-from functools import reduce
-import imp
-import operator
-import ConfigParser
+import configparser
 from glob import iglob
+from collections import defaultdict
+from importlib.machinery import FileFinder, SourceFileLoader, SOURCE_SUFFIXES
 
 from sql import Table
 from sql.functions import CurrentTimestamp
 
 import trytond.tools as tools
 from trytond.config import config
+from trytond.exceptions import MissingDependenciesException
 from trytond.transaction import Transaction
-from trytond.cache import Cache
 from trytond import backend
 import trytond.convert as convert
 
@@ -38,109 +38,54 @@ def update_egg_modules():
     try:
         import pkg_resources
         for ep in pkg_resources.iter_entry_points('trytond.modules'):
-            mod_name = ep.module_name.split('.')[-1]
-            EGG_MODULES[mod_name] = ep
+            EGG_MODULES[ep.name] = ep
     except ImportError:
         pass
+
+
 update_egg_modules()
 
 
-class Graph(dict):
-
-    def add_node(self, name, deps):
-        for i in [Node(x, self) for x in deps]:
-            i.add_child(name)
-        if not deps:
-            Node(name, self)
-
-    def __iter__(self):
-        level = 0
-        done = set(self.keys())
-        while done:
-            level_modules = [(name, module) for name, module in self.items()
-                if module.depth == level]
-            for name, module in level_modules:
-                done.remove(name)
-                yield module
-            level += 1
-
-    def __str__(self):
-        res = ''
-        for i in self:
-            res += str(i)
-            res += '\n'
-        return res
-
-
-class Singleton(object):
-
-    def __new__(cls, name, graph):
-        if name in graph:
-            inst = graph[name]
+def import_module(name, fullname=None):
+    if fullname is None:
+        fullname = 'trytond.modules.' + name
+    try:
+        module = importlib.import_module(fullname)
+    except ImportError:
+        if name not in EGG_MODULES:
+            raise
+        ep = EGG_MODULES[name]
+        # Can not use ep.load because modules are declared in an importable
+        # path and it can not import submodule.
+        path = os.path.join(
+            ep.dist.location, *ep.module_name.split('.')[:-1])
+        if not os.path.isdir(path):
+            # Find module in path
+            for path in sys.path:
+                path = os.path.join(
+                    path, *ep.module_name.split('.')[:-1])
+                if os.path.isdir(os.path.join(path, name)):
+                    break
+            else:
+                # When testing modules from setuptools location is the
+                # module directory
+                path = os.path.dirname(ep.dist.location)
+        spec = FileFinder(
+            path, (SourceFileLoader, SOURCE_SUFFIXES)
+            ).find_spec(fullname)
+        if spec.loader:
+            module = spec.loader.load_module()
         else:
-            inst = object.__new__(cls)
-            graph[name] = inst
-        return inst
+            raise
+    return module
 
-
-class Node(Singleton):
-
-    def __init__(self, name, graph):
-        super(Node, self).__init__()
-        self.name = name
-        self.graph = graph
-
-        # __init__ is called even if Node already exists
-        if not hasattr(self, 'info'):
-            self.info = None
-        if not hasattr(self, 'childs'):
-            self.childs = []
-        if not hasattr(self, 'depth'):
-            self.depth = 0
-
-    def add_child(self, name):
-        node = Node(name, self.graph)
-        node.depth = max(self.depth + 1, node.depth)
-        if node not in self.all_childs():
-            self.childs.append(node)
-        self.childs.sort(key=operator.attrgetter('name'))
-
-    def all_childs(self):
-        res = []
-        for child in self.childs:
-            res.append(child)
-            res += child.all_childs()
-        return res
-
-    def has_child(self, name):
-        return Node(name, self.graph) in self.childs or \
-            bool([c for c in self.childs if c.has_child(name)])
-
-    def __setattr__(self, name, value):
-        super(Node, self).__setattr__(name, value)
-        if name == 'depth':
-            for child in self.childs:
-                setattr(child, name, value + 1)
-
-    def __iter__(self):
-        return itertools.chain(iter(self.childs),
-                *[iter(x) for x in self.childs])
-
-    def __str__(self):
-        return self.pprint()
-
-    def pprint(self, depth=0):
-        res = '%s\n' % self.name
-        for child in self.childs:
-            res += '%s`-> %s' % ('    ' * depth, child.pprint(depth + 1))
-        return res
 
 
 def get_module_info(name):
     "Return the content of the tryton.cfg"
-    module_config = ConfigParser.ConfigParser()
+    module_config = configparser.ConfigParser()
     with tools.file_open(os.path.join(name, 'tryton.cfg')) as fp:
-        module_config.readfp(fp)
+        module_config.read_file(fp)
         directory = os.path.dirname(fp.name)
     info = dict(module_config.items('tryton'))
     info['directory'] = directory
@@ -150,46 +95,69 @@ def get_module_info(name):
     return info
 
 
-def create_graph(module_list):
-    graph = Graph()
-    packages = []
+class Graph(dict):
+    def get(self, name):
+        if name in self:
+            node = self[name]
+        else:
+            node = self[name] = Node(name)
+        return node
 
+    def add(self, name, deps):
+        node = self.get(name)
+        for dep in deps:
+            self.get(dep).append(node)
+        return node
+
+    def __iter__(self):
+        for node in sorted(self.values(), key=lambda n: (n.depth, n.name)):
+            yield node
+
+
+class Node(list):
+    def __init__(self, name):
+        super(Node, self).__init__()
+        self.name = name
+        self.info = None
+        self.__depth = 0
+
+    def __repr__(self):
+        return str((self.name, self.depth, tuple(self)))
+
+    @property
+    def depth(self):
+        return self.__depth
+
+    @depth.setter
+    def depth(self, value):
+        if value > self.__depth:
+            self.__depth = value
+            for child in self:
+                child.depth = value + 1
+
+    def append(self, node):
+        assert isinstance(node, Node)
+        node.depth = self.depth + 1
+        super(Node, self).append(node)
+
+
+def create_graph(module_list):
+    module_list = set(module_list)
+    all_deps = set()
+    graph = Graph()
     for module in module_list:
         info = get_module_info(module)
-        packages.append((module, info.get('depends', []),
-                info.get('extras_depend', []), info))
+        deps = info.get('depends', []) + [
+            d for d in info.get('extras_depend', []) if d in module_list]
+        node = graph.add(module, deps)
+        assert node.info is None
+        node.info = info
+        all_deps.update(deps)
 
-    current, later = set([x[0] for x in packages]), set()
-    all_packages = set(current)
-    while packages and current > later:
-        package, deps, xdep, info = packages[0]
-
-        # if all dependencies of 'package' are already in the graph,
-        # add 'package' in the graph
-        all_deps = deps + [x for x in xdep if x in all_packages]
-        if reduce(lambda x, y: x and y in graph, all_deps, True):
-            if package not in current:
-                packages.pop(0)
-                continue
-            later.clear()
-            current.remove(package)
-            graph.add_node(package, all_deps)
-            node = Node(package, graph)
-            node.info = info
-        else:
-            later.add(package)
-            packages.append((package, deps, xdep, info))
-        packages.pop(0)
-
-    missings = set()
-    for package, deps, _, _ in packages:
-        if package not in later:
-            continue
-        missings |= set((x for x in deps if x not in graph))
-    if missings:
-        raise Exception('Missing dependencies: %s' % list(missings
-                - set((p[0] for p in packages))))
-    return graph, packages, later
+    missing = all_deps - module_list
+    if missing:
+        raise MissingDependenciesException(list(missing))
+    return graph
 
 
 def is_module_to_install(module, update):
@@ -199,6 +167,8 @@ def is_module_to_install(module, update):
 
 
 def load_module_graph(graph, pool, update=None, lang=None):
+    from trytond.ir.lang import get_parent_language
+
     if lang is None:
         lang = [config.get('database', 'language')]
     if update is None:
@@ -206,32 +176,41 @@ def load_module_graph(graph, pool, update=None, lang=None):
     modules_todo = []
     models_to_update_history = set()
 
-    with Transaction().connection.cursor() as cursor:
+    # Load also parent languages
+    lang = set(lang)
+    for code in list(lang):
+        while code:
+            lang.add(code)
+            code = get_parent_language(code)
+
+    transaction = Transaction()
+    with transaction.connection.cursor() as cursor:
         modules = [x.name for x in graph]
         cursor.execute(*ir_module.select(ir_module.name, ir_module.state,
                 where=ir_module.name.in_(modules)))
         module2state = dict(cursor.fetchall())
+        modules = set(modules)
 
-        for package in graph:
-            module = package.name
+        for node in graph:
+            module = node.name
             if module not in MODULES:
                 continue
             logger.info(module)
-            classes = pool.fill(module)
+            classes = pool.fill(module, modules)
             if update:
                 pool.setup(classes)
-            package_state = module2state.get(module, 'uninstalled')
+            package_state = module2state.get(module, 'not activated')
             if (is_module_to_install(module, update)
                     or (update
-                        and package_state in ('to install', 'to upgrade'))):
-                if package_state not in ('to install', 'to upgrade'):
-                    if package_state == 'installed':
+                        and package_state in ('to activate', 'to upgrade'))):
+                if package_state not in ('to activate', 'to upgrade'):
+                    if package_state == 'activated':
                         package_state = 'to upgrade'
                     elif package_state != 'to remove':
-                        package_state = 'to install'
-                for child in package.childs:
+                        package_state = 'to activate'
+                for child in node:
                     module2state[child.name] = package_state
-                for type in classes.keys():
+                for type in list(classes.keys()):
                     for cls in classes[type]:
                         logger.info('%s:register %s', module, cls.__name__)
                         cls.__register__(module)
@@ -239,11 +218,11 @@ def load_module_graph(graph, pool, update=None, lang=None):
                     if hasattr(model, '_history'):
                         models_to_update_history.add(model.__name__)
 
-                # Instanciate a new parser for the package:
-                tryton_parser = convert.TrytondXmlHandler(pool=pool,
-                    module=module, module_state=package_state)
+                # Instanciate a new parser for the module
+                tryton_parser = convert.TrytondXmlHandler(
+                    pool, module, package_state, modules)
 
-                for filename in package.info.get('xml', []):
+                for filename in node.info.get('xml', []):
                     filename = filename.replace('/', os.sep)
                     logger.info('%s:loading %s', module, filename)
                     # Feed the parser with xml content:
@@ -252,7 +231,8 @@ def load_module_graph(graph, pool, update=None, lang=None):
 
                 modules_todo.append((module, list(tryton_parser.to_delete)))
 
-                localedir = '%s/%s' % (package.info['directory'], 'locale')
+                localedir = '%s/%s' % (node.info['directory'], 'locale')
+                lang2filenames = defaultdict(list)
                 for filename in itertools.chain(
                         iglob('%s/*.po' % localedir),
                         iglob('%s/override/*.po' % localedir)):
@@ -260,32 +240,43 @@ def load_module_graph(graph, pool, update=None, lang=None):
                     lang2 = os.path.splitext(os.path.basename(filename))[0]
                     if lang2 not in lang:
                         continue
-                    logger.info('%s:loading %s', module,
-                        filename[len(package.info['directory']) + 1:])
+                    lang2filenames[lang2].append(filename)
+                base_path_position = len(node.info['directory']) + 1
+                for language, files in lang2filenames.items():
+                    filenames = [f[base_path_position:] for f in files]
+                    logger.info('%s:loading %s', module, ','.join(filenames))
                     Translation = pool.get('ir.translation')
-                    Translation.translation_import(lang2, module, filename)
+                    Translation.translation_import(language, module, files)
 
                 if package_state == 'to remove':
                     continue
                 cursor.execute(*ir_module.select(ir_module.id,
-                        where=(ir_module.name == package.name)))
+                        where=(ir_module.name == module)))
                 try:
                     module_id, = cursor.fetchone()
                     cursor.execute(*ir_module.update([ir_module.state],
-                            ['installed'], where=(ir_module.id == module_id)))
+                            ['activated'], where=(ir_module.id == module_id)))
                 except TypeError:
                     cursor.execute(*ir_module.insert(
                             [ir_module.create_uid, ir_module.create_date,
                                 ir_module.name, ir_module.state],
-                            [[0, CurrentTimestamp(), package.name,
-                                    'installed'],
+                            [[0, CurrentTimestamp(), module, 'activated'],
                                 ]))
-                module2state[package.name] = 'installed'
+                module2state[module] = 'activated'
 
-            Transaction().connection.commit()
+            transaction.commit()
 
         if not update:
             pool.setup()
+        else:
+            # Remove unknown models and fields
+            Model = pool.get('ir.model')
+            Model.clean()
+            ModelField = pool.get('ir.model.field')
+            ModelField.clean()
+            transaction.commit()
+
+        pool.setup_mixin(modules)
 
         for model_name in models_to_update_history:
             model = pool.get(model_name)
@@ -329,49 +320,30 @@ def register_classes():
     import trytond.tests
     trytond.tests.register()
 
-    for package in create_graph(get_module_list())[0]:
-        module = package.name
+    for node in create_graph(get_module_list()):
+        module = node.name
         logger.info('%s:registering classes', module)
 
         if module in ('ir', 'res', 'tests'):
             MODULES.append(module)
             continue
 
-        if os.path.isdir(OPJ(MODULES_PATH, module)):
-            mod_path = MODULES_PATH
-        elif module in EGG_MODULES:
-            ep = EGG_MODULES[module]
-            mod_path = os.path.join(ep.dist.location,
-                    *ep.module_name.split('.')[:-1])
-            if not os.path.isdir(mod_path):
-                # Find module in path
-                for path in sys.path:
-                    mod_path = os.path.join(path,
-                            *ep.module_name.split('.')[:-1])
-                    if os.path.isdir(os.path.join(mod_path, module)):
-                        break
-                if not os.path.isdir(os.path.join(mod_path, module)):
-                    # When testing modules from setuptools location is the
-                    # module directory
-                    mod_path = os.path.dirname(ep.dist.location)
-        else:
-            raise Exception('Couldn\'t find module %s' % module)
-        mod_file, pathname, description = imp.find_module(module,
-                [mod_path])
-        the_module = imp.load_module('trytond.modules.' + module,
-            mod_file, pathname, description)
+        the_module = import_module(module)
         # Some modules register nothing in the Pool
         if hasattr(the_module, 'register'):
             the_module.register()
-        if mod_file is not None:
-            mod_file.close()
         MODULES.append(module)
 
 
-def load_modules(database_name, pool, update=None, lang=None):
+def load_modules(
+        database_name, pool, update=None, lang=None, activatedeps=False):
     res = True
+    if update:
+        update = update[:]
+    else:
+        update = []
 
-    def _load_modules():
+    def _load_modules(update):
         global res
         TableHandler = backend.get('TableHandler')
         transaction = Transaction()
@@ -382,18 +354,36 @@ def load_modules(database_name, pool, update=None, lang=None):
             new_table = 'ir_module'
             if TableHandler.table_exist(old_table):
                 TableHandler.table_rename(old_table, new_table)
+
+            # Migration from 4.0: rename installed to activated
+            cursor.execute(*ir_module.select(ir_module.name,
+                    where=ir_module.state.in_(('installed', 'uninstalled'))))
+            if cursor.fetchone():
+                cursor.execute(*ir_module.update(
+                        [ir_module.state], ['activated'],
+                        where=ir_module.state == 'installed'))
+                cursor.execute(*ir_module.update(
+                        [ir_module.state], ['not activated'],
+                        where=ir_module.state == 'uninstalled'))
+
             if update:
                 cursor.execute(*ir_module.select(ir_module.name,
-                        where=ir_module.state.in_(('installed', 'to install',
+                        where=ir_module.state.in_(('activated', 'to activate',
                                 'to upgrade', 'to remove'))))
             else:
                 cursor.execute(*ir_module.select(ir_module.name,
-                        where=ir_module.state.in_(('installed', 'to upgrade',
+                        where=ir_module.state.in_(('activated', 'to upgrade',
                                 'to remove'))))
             module_list = [name for (name,) in cursor.fetchall()]
-            if update:
+            graph = None
+            while graph is None:
                 module_list += update
-            graph = create_graph(module_list)[0]
+                try:
+                    graph = create_graph(module_list)
+                except MissingDependenciesException as e:
+                    if not activatedeps:
+                        raise
+                    update += e.missings
 
             load_module_graph(graph, pool, update, lang)
 
@@ -413,7 +403,7 @@ def load_modules(database_name, pool, update=None, lang=None):
                             Model.delete([Model(rid)])
                         Transaction().connection.commit()
                     cursor.execute(*ir_module.update([ir_module.state],
-                            ['uninstalled'],
+                            ['not activated'],
                             where=(ir_module.state == 'to remove')))
                     Transaction().connection.commit()
                     res = False
@@ -422,15 +412,14 @@ def load_modules(database_name, pool, update=None, lang=None):
                 Module.update_list()
         # Need to commit to unlock SQLite database
         transaction.commit()
-        Cache.resets(database_name)
 
     if not Transaction().connection:
         with Transaction().start(database_name, 0):
-            _load_modules()
+            _load_modules(update)
     else:
         with Transaction().new_transaction(), \
                 Transaction().set_user(0), \
                 Transaction().reset_context():
-            _load_modules()
+            _load_modules(update)
 
     return res

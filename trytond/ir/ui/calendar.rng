@@ -18,7 +18,22 @@
   </define>
   <define name="attlist.calendar" combine="interleave">
     <optional>
-      <attribute name="string" a:defaultValue="Unknown"/>
+      <attribute name="mode">
+        <choice>
+          <value>week</value>
+          <value>month</value>
+        </choice>
+      </attribute>
+    </optional>
+  </define>
+  <define name="attlist.calendar" combine="interleave">
+    <optional>
+      <attribute name="color" a:defaultValue="black"/>
+    </optional>
+  </define>
+  <define name="attlist.calendar" combine="interleave">
+    <optional>
+      <attribute name="background_color" a:defaultValue="lightblue"/>
     </optional>
   </define>
   <define name="field">
@@ -47,6 +62,7 @@
       <zeroOrMore>
         <choice>
           <ref name="field"/>
+          <ref name="calendar"/>
         </choice>
       </zeroOrMore>
     </element>

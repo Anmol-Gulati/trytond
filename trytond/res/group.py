@@ -3,12 +3,10 @@
 "Group"
 from itertools import chain
 from ..model import ModelView, ModelSQL, fields, Unique
-from ..pool import Pool, PoolMeta
+from ..pool import Pool
 from ..tools import grouped_slice
 
-__all__ = [
-    'Group', 'Group2',
-    ]
+__all__ = ['Group']
 
 
 class MenuMany2Many(fields.Many2Many):
@@ -20,11 +18,11 @@ class MenuMany2Many(fields.Many2Many):
         menu_ids = list(set(chain(*res.values())))
         test_ids = []
         for sub_ids in grouped_slice(menu_ids):
-            test_ids.append(map(int, Menu.search([
+            test_ids.append(list(map(int, Menu.search([
                             ('id', 'in', sub_ids),
-                            ])))
+                            ]))))
         menu_ids = set(chain(*test_ids))
-        for group_id, ids in res.iteritems():
+        for group_id, ids in res.items():
             res[group_id] = tuple(id_ for id_ in ids if id_ in menu_ids)
         return res
 
@@ -33,10 +31,13 @@ class Group(ModelSQL, ModelView):
     "Group"
     __name__ = "res.group"
     name = fields.Char('Name', required=True, select=True, translate=True)
+    users = fields.Many2Many('res.user-res.group', 'group', 'user', 'Users')
     model_access = fields.One2Many('ir.model.access', 'group',
        'Access Model')
     field_access = fields.One2Many('ir.model.field.access', 'group',
         'Access Field')
+    buttons = fields.Many2Many(
+        'ir.model.button-res.group', 'group', 'button', "Buttons")
     rule_groups = fields.Many2Many('ir.rule.group-res.group',
        'group', 'rule_group', 'Rules',
        domain=[('global_p', '!=', True), ('default_p', '!=', True)])
@@ -117,9 +118,3 @@ class Group(ModelSQL, ModelView):
         pool.get('ir.model.access')._get_access_cache.clear()
         pool.get('ir.model.field.access')._get_access_cache.clear()
         ModelView._fields_view_get_cache.clear()
-
-
-class Group2:
-    __metaclass__ = PoolMeta
-    __name__ = "res.group"
-    users = fields.Many2Many('res.user-res.group', 'group', 'user', 'Users')

@@ -5,10 +5,7 @@ __all__ = ['Wizard',
     'StateView', 'StateTransition', 'StateAction', 'StateReport',
     'Button']
 
-try:
-    import simplejson as json
-except ImportError:
-    import json
+import json
 import copy
 
 from trytond.pool import Pool, PoolBase
@@ -86,11 +83,23 @@ class StateView(State):
         '''
         Returns defaults values for the fields
         '''
-        Model_ = Pool().get(self.model_name)
+        pool = Pool()
+        Model_ = pool.get(self.model_name)
         defaults = Model_.default_get(fields)
         default = getattr(wizard, 'default_%s' % state_name, None)
         if default:
             defaults.update(default(fields))
+            for field_name, value in list(defaults.items()):
+                if '.' in field_name:
+                    continue
+                field = Model_._fields[field_name]
+                field_rec_name = field_name + '.rec_name'
+                if (value
+                        and field._type == 'many2one'
+                        and field_rec_name not in defaults):
+                    Target = pool.get(field.model_name)
+                    if 'rec_name' in Target._fields:
+                        defaults[field_rec_name] = Target(value).rec_name
         return defaults
 
     def get_buttons(self, wizard, state_name):
@@ -221,12 +230,15 @@ class Wizard(WarningErrorMixin, URLMixin, PoolBase):
         model = context.get('active_model')
         if model:
             ModelAccess.check(model, 'read')
-            ModelAccess.check(model, 'write')
         groups = set(User.get_groups())
         wizard_groups = ActionWizard.get_groups(cls.__name__,
             action_id=context.get('action_id'))
-        if wizard_groups and not groups & wizard_groups:
-            raise UserError('Calling wizard %s is not allowed!' % cls.__name__)
+        if wizard_groups:
+            if not groups & wizard_groups:
+                raise UserError('Calling wizard %s is not allowed!'
+                    % cls.__name__)
+        elif model:
+            ModelAccess.check(model, 'write')
 
     @classmethod
     def create(cls):
@@ -266,9 +278,9 @@ class Wizard(WarningErrorMixin, URLMixin, PoolBase):
         '''
         cls.check_access()
         wizard = cls(session_id)
-        for key, values in data.iteritems():
+        for key, values in data.items():
             record = getattr(wizard, key)
-            for field, value in values.iteritems():
+            for field, value in values.items():
                 if field == 'id':
                     continue
                 setattr(record, field, value)
@@ -284,7 +296,7 @@ class Wizard(WarningErrorMixin, URLMixin, PoolBase):
         if isinstance(state, StateView):
             view = state.get_view(self, state_name)
             defaults = state.get_defaults(self, state_name,
-                view['fields'].keys())
+                list(view['fields'].keys()))
             buttons = state.get_buttons(self, state_name)
             result['view'] = {
                 'fields_view': view,
@@ -315,7 +327,7 @@ class Wizard(WarningErrorMixin, URLMixin, PoolBase):
         self._session_id = session_id
         session = Session(session_id)
         data = json.loads(session.data, object_hook=JSONDecoder())
-        for state_name, state in self.states.iteritems():
+        for state_name, state in self.states.items():
             if isinstance(state, StateView):
                 Target = pool.get(state.model_name)
                 data.setdefault(state_name, {})
@@ -325,11 +337,11 @@ class Wizard(WarningErrorMixin, URLMixin, PoolBase):
         "Save the session in database"
         Session = Pool().get('ir.session.wizard')
         data = {}
-        for state_name, state in self.states.iteritems():
+        for state_name, state in self.states.items():
             if isinstance(state, StateView):
                 data[state_name] = getattr(self, state_name)._default_values
         session = Session(self._session_id)
-        data = json.dumps(data, cls=JSONEncoder)
+        data = json.dumps(data, cls=JSONEncoder, separators=(',', ':'))
         if data != session.data.encode('utf-8'):
             Session.write([session], {
                     'data': data,

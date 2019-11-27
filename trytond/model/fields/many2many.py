@@ -6,7 +6,8 @@ from sql import Cast, Literal, Null
 from sql.functions import Substring, Position
 from sql.conditionals import Coalesce
 
-from .field import Field, size_validate
+from .field import (Field, size_validate, instanciate_values, domain_validate,
+    search_order_validate, context_validate)
 from ...pool import Pool
 from ...tools import grouped_slice
 from ...transaction import Transaction
@@ -19,8 +20,9 @@ class Many2Many(Field):
     _type = 'many2many'
 
     def __init__(self, relation_name, origin, target, string='', order=None,
-            datetime_field=None, size=None, help='', required=False,
-            readonly=False, domain=None, states=None, on_change=None,
+            datetime_field=None, size=None, search_order=None,
+            search_context=None, help='', required=False, readonly=False,
+            domain=None, filter=None, states=None, on_change=None,
             on_change_with=None, depends=None, context=None, loading='lazy'):
         '''
         :param relation_name: The name of the relation model
@@ -32,6 +34,9 @@ class Many2Many(Field):
             allowing to specify the order of result
         :param datetime_field: The name of the field that contains the datetime
             value to read the target records.
+        :param search_order: The order to use when searching for a record
+        :param search_context: The context to use when searching for a record
+        :param filter: A domain to filter target records.
         '''
         if datetime_field:
             if depends:
@@ -49,6 +54,12 @@ class Many2Many(Field):
         self.datetime_field = datetime_field
         self.__size = None
         self.size = size
+        self.__search_order = None
+        self.search_order = search_order
+        self.__search_context = None
+        self.search_context = search_context or {}
+        self.__filter = None
+        self.filter = filter
 
     __init__.__doc__ += Field.__init__.__doc__
 
@@ -62,8 +73,39 @@ class Many2Many(Field):
     size = property(_get_size, _set_size)
 
     @property
+    def search_order(self):
+        return self.__search_order
+
+    @search_order.setter
+    def search_order(self, value):
+        search_order_validate(value)
+        self.__search_order = value
+
+    @property
+    def search_context(self):
+        return self.__search_context
+
+    @search_context.setter
+    def search_context(self, value):
+        context_validate(value)
+        self.__search_context = value
+
+    @property
+    def filter(self):
+        return self.__filter
+
+    @filter.setter
+    def filter(self, value):
+        if value is not None:
+            domain_validate(value)
+        self.__filter = value
+
+    @property
     def add_remove(self):
         return self.domain
+
+    def sql_type(self):
+        return None
 
     def get(self, ids, model, name, values=None):
         '''
@@ -93,13 +135,15 @@ class Many2Many(Field):
             else:
                 clause = [(self.origin, 'in', list(sub_ids))]
             clause += [(self.target, '!=', None)]
+            if self.filter:
+                clause.append((self.target, 'where', self.filter))
             relations.append(Relation.search(clause, order=order))
         relations = list(chain(*relations))
 
         for relation in relations:
             origin_id = getattr(relation, self.origin).id
             res[origin_id].append(getattr(relation, self.target).id)
-        return dict((key, tuple(value)) for key, value in res.iteritems())
+        return dict((key, tuple(value)) for key, value in res.items())
 
     def set(self, Model, name, ids, values, *args):
         '''
@@ -152,7 +196,7 @@ class Many2Many(Field):
             target_to_delete.extend(Target.browse(target_ids))
 
         def add(ids, target_ids):
-            target_ids = map(int, target_ids)
+            target_ids = list(map(int, target_ids))
             if not target_ids:
                 return
             existing_ids = set()
@@ -175,7 +219,7 @@ class Many2Many(Field):
                             })
 
         def remove(ids, target_ids):
-            target_ids = map(int, target_ids)
+            target_ids = list(map(int, target_ids))
             if not target_ids:
                 return
             for sub_ids in grouped_slice(target_ids):
@@ -185,7 +229,7 @@ class Many2Many(Field):
                             ]))
 
         def copy(ids, copy_ids, default=None):
-            copy_ids = map(int, copy_ids)
+            copy_ids = list(map(int, copy_ids))
 
             if default is None:
                 default = {}
@@ -214,14 +258,15 @@ class Many2Many(Field):
                 action = value[0]
                 args = value[1:]
                 actions[action](ids, *args)
-        if relation_to_create:
-            Relation.create(relation_to_create)
+        # Ordered operations to avoid uniqueness/overlapping constraints
         if relation_to_delete:
             Relation.delete(relation_to_delete)
-        if target_to_write:
-            Target.write(*target_to_write)
         if target_to_delete:
             Target.delete(target_to_delete)
+        if target_to_write:
+            Target.write(*target_to_write)
+        if relation_to_create:
+            Relation.create(relation_to_create)
 
     def get_target(self):
         'Return the target model'
@@ -232,16 +277,7 @@ class Many2Many(Field):
 
     def __set__(self, inst, value):
         Target = self.get_target()
-
-        def instance(data):
-            if isinstance(data, Target):
-                return data
-            elif isinstance(data, dict):
-                return Target(**data)
-            else:
-                return Target(data)
-        value = tuple(instance(x) for x in (value or []))
-        super(Many2Many, self).__set__(inst, value)
+        super(Many2Many, self).__set__(inst, instanciate_values(Target, value))
 
     def convert_domain_tree(self, domain, tables):
         Target = self.get_target()
@@ -315,9 +351,12 @@ class Many2Many(Field):
                         target_operator = 'child_of'
                     else:
                         target_operator = 'parent_of'
-                    query = Target.search([
-                            (domain[3], target_operator, value),
-                            ], order=[], query=True)
+                    target_domain = [
+                        (domain[3], target_operator, value),
+                        ]
+                    if self.filter:
+                        target_domain.append(self.filter)
+                    query = Target.search(target_domain, order=[], query=True)
                     where = (target.in_(query) & (origin != Null))
                     if history_where:
                         where &= history_where
@@ -328,14 +367,21 @@ class Many2Many(Field):
                     if operator.startswith('not'):
                         return ~expression
                     return expression
-                if isinstance(value, basestring):
-                    targets = Target.search([('rec_name', 'ilike', value)],
-                        order=[])
+                if isinstance(value, str):
+                    target_domain = [('rec_name', 'ilike', value)]
+                    if self.filter:
+                        target_domain.append(self.filter)
+                    targets = Target.search(target_domain, order=[])
                     ids = [t.id for t in targets]
-                elif not isinstance(value, (list, tuple)):
-                    ids = [value]
                 else:
-                    ids = value
+                    if not isinstance(value, (list, tuple)):
+                        ids = [value]
+                    else:
+                        ids = value
+                    if self.filter:
+                        targets = Target.search(
+                            [('id', 'in', ids), self.filter], order=[])
+                        ids = [t.id for t in targets]
                 if not ids:
                     expression = Literal(False)
                     if operator.startswith('not'):
@@ -351,13 +397,16 @@ class Many2Many(Field):
                     where &= history_where
                 if origin_where:
                     where &= origin_where
+                if self.filter:
+                    query = Target.search(self.filter, order=[], query=True)
+                    where &= target.in_(query)
                 query = relation.select(origin, where=where)
                 expression = ~table.id.in_(query)
                 if operator == '!=':
                     return ~expression
                 return expression
             else:
-                if isinstance(value, basestring):
+                if isinstance(value, str):
                     target_name = 'rec_name'
                 else:
                     target_name = 'id'
@@ -371,14 +420,15 @@ class Many2Many(Field):
                 relation_domain.append(
                     (self.origin, 'like', Model.__name__ + ',%'))
         else:
-            relation_domain = []
-            for clause in value:
-                relation_domain.append(
-                        ('%s.%s' % (self.target, clause[0]),)
-                        + tuple(clause[1:]))
+            relation_domain = [self.target, operator, value]
         rule_domain = Rule.domain_get(Relation.__name__, mode='read')
         if rule_domain:
             relation_domain = [relation_domain, rule_domain]
+        if self.filter:
+            relation_domain = [
+                relation_domain,
+                (self.target, 'where', self.filter),
+                ]
         relation_tables = {
             None: (relation, None),
             }
@@ -386,8 +436,4 @@ class Many2Many(Field):
             relation_domain, tables=relation_tables)
         query_table = convert_from(None, relation_tables)
         query = query_table.select(origin, where=expression)
-        expression = table.id.in_(query)
-
-        if operator == 'not where':
-            expression = ~expression
-        return expression
+        return table.id.in_(query)

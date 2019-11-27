@@ -1,12 +1,15 @@
 # This file is part of Tryton.  The COPYRIGHT file at the top level of
 # this repository contains the full copyright notices and license terms.
+import re
+import logging
+
 from trytond.transaction import Transaction
 from trytond.backend.table import TableHandlerInterface
-import logging
 
 __all__ = ['TableHandler']
 
 logger = logging.getLogger(__name__)
+VARCHAR_SIZE_RE = re.compile('VARCHAR\(([0-9]+)\)')
 
 
 class TableHandler(TableHandlerInterface):
@@ -23,8 +26,10 @@ class TableHandler(TableHandlerInterface):
         transaction = Transaction()
         cursor = transaction.connection.cursor()
         # Create sequence if necessary
-        if not self.sequence_exist(self.sequence_name):
-            cursor.execute('CREATE SEQUENCE "%s"' % self.sequence_name)
+        if not transaction.database.sequence_exist(
+                transaction.connection, self.sequence_name):
+            transaction.database.sequence_create(
+                transaction.connection, self.sequence_name)
 
         # Create new table if necessary
         if not self.table_exist(self.table_name):
@@ -82,7 +87,8 @@ class TableHandler(TableHandlerInterface):
 
     @staticmethod
     def table_rename(old_name, new_name):
-        cursor = Transaction().connection.cursor()
+        transaction = Transaction()
+        cursor = transaction.connection.cursor()
         # Rename table
         if (TableHandler.table_exist(old_name)
                 and not TableHandler.table_exist(new_name)):
@@ -91,7 +97,8 @@ class TableHandler(TableHandlerInterface):
         # Rename sequence
         old_sequence = old_name + '_id_seq'
         new_sequence = new_name + '_id_seq'
-        TableHandler.sequence_rename(old_sequence, new_sequence)
+        transaction.database.sequence_rename(
+            transaction.connection, old_sequence, new_sequence)
         # Rename history table
         old_history = old_name + "__history"
         new_history = new_name + "__history"
@@ -100,46 +107,21 @@ class TableHandler(TableHandlerInterface):
             cursor.execute('ALTER TABLE "%s" RENAME TO "%s"'
                 % (old_history, new_history))
 
-    @classmethod
-    def sequence_schema(cls, sequence_name):
-        transaction = Transaction()
-        cursor = transaction.connection.cursor()
-        for schema in transaction.database.search_path:
-            cursor.execute('SELECT 1 '
-                'FROM information_schema.sequences '
-                'WHERE sequence_name = %s AND sequence_schema = %s',
-                (sequence_name, schema))
-            if cursor.rowcount:
-                return schema
-
-    @classmethod
-    def sequence_exist(cls, sequence_name):
-        return bool(cls.sequence_schema(sequence_name))
-
-    @staticmethod
-    def sequence_rename(old_name, new_name):
-        cursor = Transaction().connection.cursor()
-        if (TableHandler.sequence_exist(old_name)
-                and not TableHandler.sequence_exist(new_name)):
-            cursor.execute('ALTER TABLE "%s" RENAME TO "%s"'
-                % (old_name, new_name))
-
     def column_exist(self, column_name):
         return column_name in self._columns
 
-    def column_rename(self, old_name, new_name, exception=False):
+    def column_rename(self, old_name, new_name):
         cursor = Transaction().connection.cursor()
-        if (self.column_exist(old_name)
-                and not self.column_exist(new_name)):
-            cursor.execute('ALTER TABLE "%s" '
-                'RENAME COLUMN "%s" TO "%s"'
-                % (self.table_name, old_name, new_name))
-            self._update_definitions(columns=True)
-        elif exception and self.column_exist(new_name):
-            raise Exception('Unable to rename column %s.%s to %s.%s: '
-                '%s.%s already exist!'
-                % (self.table_name, old_name, self.table_name, new_name,
-                    self.table_name, new_name))
+        if self.column_exist(old_name):
+            if not self.column_exist(new_name):
+                cursor.execute('ALTER TABLE "%s" '
+                    'RENAME COLUMN "%s" TO "%s"'
+                    % (self.table_name, old_name, new_name))
+                self._update_definitions(columns=True)
+            else:
+                logger.warning(
+                    'Unable to rename column %s on table %s to %s.',
+                    old_name, self.table_name, new_name)
 
     def _update_definitions(self,
             columns=None, constraints=None, indexes=None):
@@ -171,6 +153,20 @@ class TableHandler(TableHandlerInterface):
                 'WHERE table_name = %s AND table_schema = %s',
                 (self.table_name, self.table_schema))
             self._constraints = [c for c, in cursor.fetchall()]
+
+            # add nonstandard exclude constraint
+            cursor.execute('SELECT c.conname '
+                'FROM pg_namespace nc, '
+                    'pg_namespace nr, '
+                    'pg_constraint c, '
+                    'pg_class r '
+                'WHERE nc.oid = c.connamespace AND nr.oid = r.relnamespace '
+                    'AND c.conrelid = r.oid '
+                    "AND c.contype = 'x' "  # exclude type
+                    "AND r.relkind IN ('r', 'p') "
+                    'AND r.relname = %s AND nr.nspname = %s',
+                    (self.table_name, self.table_schema))
+            self._constraints.extend((c for c, in cursor.fetchall()))
 
             cursor.execute('SELECT k.column_name, r.delete_rule '
                 'FROM information_schema.key_column_usage AS k '
@@ -235,23 +231,25 @@ class TableHandler(TableHandlerInterface):
                 'ALTER COLUMN "' + column_name + '" SET DEFAULT %s',
                 (value,))
 
-    def add_raw_column(self, column_name, column_type, column_format,
-            default_fun=None, field_size=None, migrate=True, string=''):
+    def add_column(self, column_name, sql_type, default=None, comment=''):
         cursor = Transaction().connection.cursor()
+        database = Transaction().database
 
-        def comment():
-            if self.is_owner:
+        column_type = database.sql_type(sql_type)
+        match = VARCHAR_SIZE_RE.match(sql_type)
+        field_size = int(match.group(1)) if match else None
+
+        def add_comment():
+            if comment and self.is_owner:
                 cursor.execute('COMMENT ON COLUMN "%s"."%s" IS \'%s\'' %
-                    (self.table_name, column_name, string.replace("'", "''")))
+                    (self.table_name, column_name, comment.replace("'", "''")))
         if self.column_exist(column_name):
             if (column_name in ('create_date', 'write_date')
                     and column_type[1].lower() != 'timestamp(6)'):
                 # Migrate dates from timestamp(0) to timestamp
                 cursor.execute('ALTER TABLE "' + self.table_name + '" '
                     'ALTER COLUMN "' + column_name + '" TYPE timestamp')
-            comment()
-            if not migrate:
-                return
+            add_comment()
             base_type = column_type[0].lower()
             if base_type != self._columns[column_name]['typname']:
                 if (self._columns[column_name]['typname'], base_type) in [
@@ -291,19 +289,15 @@ class TableHandler(TableHandlerInterface):
         column_type = column_type[1]
         cursor.execute('ALTER TABLE "%s" ADD COLUMN "%s" %s'
             % (self.table_name, column_name, column_type))
-        comment()
+        add_comment()
 
-        if column_format:
+        if default:
             # check if table is non-empty:
             cursor.execute('SELECT 1 FROM "%s" limit 1' % self.table_name)
             if cursor.rowcount:
                 # Populate column with default values:
-                default = None
-                if default_fun is not None:
-                    default = default_fun()
                 cursor.execute('UPDATE "' + self.table_name + '" '
-                    'SET "' + column_name + '" = %s',
-                    (column_format(default),))
+                    'SET "' + column_name + '" = %s', (default(),))
 
         self._update_definitions(columns=True)
 
@@ -334,25 +328,51 @@ class TableHandler(TableHandlerInterface):
     def drop_fk(self, column_name, table=None):
         self.drop_constraint(column_name + '_fkey', table=table)
 
-    def index_action(self, column_name, action='add', table=None):
-        if isinstance(column_name, basestring):
-            column_name = [column_name]
-        index_name = self.convert_name(
-            ((table or self.table_name) + "_" + '_'.join(column_name) +
-                "_index"))
+    def index_action(self, columns, action='add', where='', table=None):
+        if isinstance(columns, str):
+            columns = [columns]
+
+        def stringify(column):
+            if isinstance(column, str):
+                return column
+            else:
+                return ('_'.join(
+                        map(str, (column,) + column.params))
+                    .replace('"', '')
+                    .replace('%s', '__'))
+
+        name = [table or self.table_name]
+        name.append('_'.join(map(stringify, columns)))
+        if where:
+            name.append('+where')
+            name.append(stringify(where))
+        name.append('index')
+        index_name = self.convert_name('_'.join(name))
 
         with Transaction().connection.cursor() as cursor:
             if action == 'add':
                 if index_name in self._indexes:
                     return
+                columns_quoted = []
+                for column in columns:
+                    if isinstance(column, str):
+                        columns_quoted.append('"%s"' % column)
+                    else:
+                        columns_quoted.append(str(column))
+                params = sum(
+                    (c.params for c in columns if hasattr(c, 'params')), ())
+                if where:
+                    params += where.params
+                    where = ' WHERE %s' % where
                 cursor.execute('CREATE INDEX "' + index_name + '" '
-                    'ON "' + self.table_name + '" ( '
-                        + ','.join(['"' + x + '"' for x in column_name]) + ')')
+                    'ON "' + self.table_name + '" '
+                    + '(' + ','.join(columns_quoted) + ')' + where,
+                    params)
                 self._update_definitions(indexes=True)
             elif action == 'remove':
-                if len(column_name) == 1:
-                    if (self._field2module.get(column_name[0],
-                                self.module_name) != self.module_name):
+                if len(columns) == 1 and isinstance(columns[0], str):
+                    if self._field2module.get(columns[0],
+                            self.module_name) != self.module_name:
                         return
 
                 if index_name in self._indexes:
@@ -400,60 +420,31 @@ class TableHandler(TableHandlerInterface):
             else:
                 raise Exception('Not null action not supported!')
 
-    def add_constraint(self, ident, constraint, exception=False):
+    def add_constraint(self, ident, constraint):
         ident = self.convert_name(self.table_name + "_" + ident)
         if ident in self._constraints:
             # This constrain already exist
             return
         cursor = Transaction().connection.cursor()
-        try:
-            cursor.execute('ALTER TABLE "%s" '
-                'ADD CONSTRAINT "%s" %s'
-                % (self.table_name, ident, constraint), constraint.params)
-        except Exception:
-            if exception:
-                raise
-            logger.warning(
-                'unable to add \'%s\' constraint on table %s !\n'
-                'If you want to have it, you should update the records '
-                'and execute manually:\n'
-                'ALTER table "%s" ADD CONSTRAINT "%s" %s',
-                constraint, self.table_name, self.table_name, ident,
-                constraint)
+        cursor.execute('ALTER TABLE "%s" ADD CONSTRAINT "%s" %s'
+            % (self.table_name, ident, constraint), constraint.params)
         self._update_definitions(constraints=True)
 
-    def drop_constraint(self, ident, exception=False, table=None):
+    def drop_constraint(self, ident, table=None):
         ident = self.convert_name((table or self.table_name) + "_" + ident)
         if ident not in self._constraints:
             return
         cursor = Transaction().connection.cursor()
-        try:
-            cursor.execute('ALTER TABLE "%s" '
-                'DROP CONSTRAINT "%s"'
-                % (self.table_name, ident))
-        except Exception:
-            if exception:
-                raise
-            logger.warning(
-                'unable to drop \'%s\' constraint on table %s!',
-                ident, self.table_name)
+        cursor.execute('ALTER TABLE "%s" DROP CONSTRAINT "%s"'
+            % (self.table_name, ident))
         self._update_definitions(constraints=True)
 
-    def drop_column(self, column_name, exception=False):
+    def drop_column(self, column_name):
         if not self.column_exist(column_name):
             return
         cursor = Transaction().connection.cursor()
-        try:
-            cursor.execute(
-                'ALTER TABLE "%s" DROP COLUMN "%s"' %
-                (self.table_name, column_name))
-
-        except Exception:
-            if exception:
-                raise
-            logger.warning(
-                'unable to drop \'%s\' column on table %s!',
-                column_name, self.table_name, exc_info=True)
+        cursor.execute('ALTER TABLE "%s" DROP COLUMN "%s"'
+            % (self.table_name, column_name))
         self._update_definitions(columns=True)
 
     @staticmethod

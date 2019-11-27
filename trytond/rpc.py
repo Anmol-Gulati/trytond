@@ -1,5 +1,8 @@
 # This file is part of Tryton.  The COPYRIGHT file at the top level of
 # this repository contains the full copyright notices and license terms.
+import copy
+
+from trytond.transaction import Transaction
 
 __all__ = ['RPC']
 
@@ -11,12 +14,15 @@ class RPC(object):
     instantiate: The position or the slice of the arguments to be instanciated
     result: The function to transform the result
     check_access: If access right must be checked
+    fresh_session: If a fresh session is required
+    unique: Check instances are unique
     '''
 
-    __slots__ = ('readonly', 'instantiate', 'result', 'check_access', 'atomic')
+    __slots__ = ('readonly', 'instantiate', 'result', 'check_access',
+        'fresh_session', 'unique', 'atomic')
 
     def __init__(self, readonly=True, instantiate=None, result=None,
-            check_access=True, atomic=True):
+            check_access=True, fresh_session=False, unique=True, atomic=True):
         self.readonly = readonly
         self.instantiate = instantiate
         if result is None:
@@ -26,6 +32,8 @@ class RPC(object):
         assert atomic or self.instantiate is None, \
             "Non atomic RPC doesn't support instantiation"
         self.atomic = atomic
+        self.fresh_session = fresh_session
+        self.unique = unique
 
     def convert(self, obj, *args, **kwargs):
         args = list(args)
@@ -34,24 +42,26 @@ class RPC(object):
             context = kwargs.pop('context')
         else:
             context = args.pop()
+        context = copy.deepcopy(context)
         timestamp = None
-        for key in context.keys():
+        for key in list(context.keys()):
             if key == '_timestamp':
                 timestamp = context[key]
             # Remove all private keyword but _datetime for history
             if key.startswith('_') and key != '_datetime':
                 del context[key]
-        if self.check_access:
-            context['_check_access'] = True
         if self.instantiate is not None:
 
             def instance(data):
-                if isinstance(data, (int, long)):
-                    return obj(data)
-                elif isinstance(data, dict):
-                    return obj(**data)
-                else:
-                    return obj.browse(data)
+                with Transaction().set_context(context):
+                    if isinstance(data, int):
+                        return obj(data)
+                    elif isinstance(data, dict):
+                        return obj(**data)
+                    else:
+                        if self.unique and len(data) != len(set(data)):
+                            raise ValueError("Duplicate ids")
+                        return obj.browse(data)
             if isinstance(self.instantiate, slice):
                 for i, data in enumerate(args[self.instantiate]):
                     start, _, step = self.instantiate.indices(len(args))
@@ -60,4 +70,6 @@ class RPC(object):
             else:
                 data = args[self.instantiate]
                 args[self.instantiate] = instance(data)
+        if self.check_access:
+            context['_check_access'] = True
         return args, kwargs, context, timestamp

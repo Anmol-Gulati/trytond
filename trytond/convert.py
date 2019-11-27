@@ -1,10 +1,11 @@
 # This file is part of Tryton.  The COPYRIGHT file at the top level of
 # this repository contains the full copyright notices and license terms.
 import time
+import datetime
 from xml import sax
 import logging
 import re
-from itertools import izip
+
 from collections import defaultdict
 from decimal import Decimal
 
@@ -51,8 +52,9 @@ class MenuitemTagHandler:
 
         for attr in ('name', 'icon', 'sequence', 'parent', 'action', 'groups',
                      'in_page', 'help'):
-            if attributes.get(attr):
+            if attr in attributes:
                 values[attr] = attributes.get(attr)
+        values['icon'] = attributes.get('icon', 'tryton-folder')
 
         if attributes.get('active'):
             values['active'] = bool(eval(attributes['active']))
@@ -110,7 +112,7 @@ class MenuitemTagHandler:
             elif icon_name:
                 values['icon'] = icon_name
             elif action_type == 'ir.action.wizard':
-                values['icon'] = 'tryton-executable'
+                values['icon'] = 'tryton-launch'
             elif action_type == 'ir.action.report':
                 values['icon'] = 'tryton-print'
             elif action_type == 'ir.action.act_window':
@@ -120,15 +122,15 @@ class MenuitemTagHandler:
                     else:
                         values['icon'] = 'tryton-list'
                 elif view_type == 'form':
-                    values['icon'] = 'tryton-new'
+                    values['icon'] = 'tryton-form'
                 elif view_type == 'graph':
                     values['icon'] = 'tryton-graph'
                 elif view_type == 'calendar':
                     values['icon'] = 'tryton-calendar'
             elif action_type == 'ir.action.url':
-                values['icon'] = 'tryton-web-browser'
+                values['icon'] = 'tryton-public'
             else:
-                values['icon'] = 'tryton-new'
+                values['icon'] = None
 
         if values.get('groups'):
             raise Exception("Please use separate records for groups")
@@ -157,7 +159,7 @@ class MenuitemTagHandler:
             return None
 
     def current_state(self):
-        return "Tag menuitem with id: %s" % self.xml_id
+        return "Tag menuitem with id %s.%s" % (self.mh.module, self.xml_id)
 
 
 class RecordTagHandler:
@@ -201,10 +203,15 @@ class RecordTagHandler:
 
             field_name = attributes['name']
             field_type = attributes.get('type', '')
+            # Remind the current name and if we have to load (see characters)
+            self.current_field = field_name
+            depends = attributes.get('depends', '').split(',')
+            depends = {m.strip() for m in depends if m}
+            if not depends.issubset(self.mh.modules):
+                self.current_field = None
+                return
             # Create a new entry in the values
             self.values[field_name] = ""
-            # Remind the current name (see characters)
-            self.current_field = field_name
             # Put a flag to escape cdata tags
             if field_type == "xml":
                 self.cdata = "start"
@@ -230,8 +237,8 @@ class RecordTagHandler:
                 context['time'] = time
                 context['version'] = __version__.rsplit('.', 1)[0]
                 context['ref'] = self.mh.get_id
-                context['obj'] = lambda *a: 1
                 context['Decimal'] = Decimal
+                context['datetime'] = datetime
                 if pyson_attr:
                     context.update(CONTEXT)
                 value = eval(eval_attr, context)
@@ -245,7 +252,7 @@ class RecordTagHandler:
 
     def characters(self, data):
 
-        """If whe are in a field tag, consume all the content"""
+        """If we are in a field tag, consume all the content"""
 
         if not self.current_field:
             return
@@ -265,8 +272,7 @@ class RecordTagHandler:
 
         if name == "field":
             if not self.current_field:
-                raise Exception("Application error"
-                                "current_field expected to be set.")
+                return self
             # Escape end cdata tag :
             if self.cdata in ('inside', 'start'):
                 self.values[self.current_field] = \
@@ -294,8 +300,9 @@ class RecordTagHandler:
             raise Exception("Unexpected closing tag '%s'" % (name,))
 
     def current_state(self):
-        return "In tag record: model %s with id %s." % \
-               (self.model and self.model.__name__ or "?", self.xml_id)
+        return "In tag record model %s with id %s.%s." % \
+               (self.model and self.model.__name__ or "?",
+                   self.mh.module, self.xml_id)
 
 
 # Custom exception:
@@ -351,13 +358,13 @@ class Fs2bdAccessor:
         self.browserecord[module].setdefault(model_name, {})
         Model = self.pool.get(model_name)
         if not ids:
-            ids = self.browserecord[module][model_name].keys()
+            ids = list(self.browserecord[module][model_name].keys())
         models = Model.browse(ids)
         for model in models:
             if model.id in self.browserecord[module][model_name]:
                 for cache in Transaction().cache.values():
-                    for cache in (cache, cache.get('_language_cache',
-                                {}).values()):
+                    for cache in (
+                            cache, cache.get('_language_cache', {}).values()):
                         if (model_name in cache
                                 and model.id in cache[model_name]):
                             cache[model_name][model.id] = {}
@@ -390,8 +397,8 @@ class Fs2bdAccessor:
                     records = Model.search([
                         ('id', 'in', list(sub_record_ids)),
                         ], order=[('id', 'ASC')])
-                with Transaction().set_context(language='en_US'):
-                    models = Model.browse(map(int, records))
+                with Transaction().set_context(language='en'):
+                    models = Model.browse(list(map(int, records)))
                 for model in models:
                     self.browserecord[module][model_name][model.id] = model
         self.fetched_modules.append(module)
@@ -399,7 +406,7 @@ class Fs2bdAccessor:
 
 class TrytondXmlHandler(sax.handler.ContentHandler):
 
-    def __init__(self, pool, module, module_state):
+    def __init__(self, pool, module, module_state, modules):
         "Register known taghandlers, and managed tags."
         sax.handler.ContentHandler.__init__(self)
 
@@ -415,10 +422,7 @@ class TrytondXmlHandler(sax.handler.ContentHandler):
         self.grouped_write = defaultdict(list)
         self.grouped_model_data = []
         self.skip_data = False
-        Module = pool.get('ir.module')
-        self.installed_modules = [m.name for m in Module.search([
-                    ('state', 'in', ['installed', 'to upgrade']),
-                    ])]
+        self.modules = modules
 
         # Tag handlders are used to delegate the processing
         self.taghandlerlist = {
@@ -470,10 +474,9 @@ class TrytondXmlHandler(sax.handler.ContentHandler):
                 else:
                     self.skip_data = False
                 depends = attributes.get('depends', '').split(',')
-                depends = [m.strip() for m in depends if m]
-                if depends:
-                    if not all((m in self.installed_modules for m in depends)):
-                        self.skip_data = True
+                depends = {m.strip() for m in depends if m}
+                if not depends.issubset(self.modules):
+                    self.skip_data = True
 
             elif name == "tryton":
                 pass
@@ -491,10 +494,10 @@ class TrytondXmlHandler(sax.handler.ContentHandler):
     def endElement(self, name):
 
         if name == 'data' and self.grouped:
-            for model, values in self.grouped_creations.iteritems():
+            for model, values in self.grouped_creations.items():
                 self.create_records(model, values.values(), values.keys())
             self.grouped_creations.clear()
-            for key, actions in self.grouped_write.iteritems():
+            for key, actions in self.grouped_write.items():
                 module, model = key
                 self.write_records(module, model, *actions)
             self.grouped_write.clear()
@@ -588,7 +591,7 @@ class TrytondXmlHandler(sax.handler.ContentHandler):
             if module == self.module and fs_id in self.to_delete:
                 self.to_delete.remove(fs_id)
 
-            if self.noupdate and self.module_state != 'to install':
+            if self.noupdate and self.module_state != 'to activate':
                 return
 
             # this record is already in the db:
@@ -616,7 +619,7 @@ class TrytondXmlHandler(sax.handler.ContentHandler):
             # Re-create record if it was deleted
             if not record:
                 with Transaction().set_context(
-                        module=module, language='en_US'):
+                        module=module, language='en'):
                     record, = Model.create([values])
 
                 # reset_browsercord
@@ -641,12 +644,8 @@ class TrytondXmlHandler(sax.handler.ContentHandler):
 
                 db_field = self._clean_value(key, record)
 
-                # if the fs value is the same has in the db, whe ignore it
-                val = values[key]
-                if isinstance(values[key], bytes):
-                    # Fix for migration to unicode
-                    val = values[key].decode('utf-8')
-                if db_field == val:
+                # if the fs value is the same as in the db, we ignore it
+                if db_field == values[key]:
                     continue
 
                 # we cannot update a field if it was changed by a user...
@@ -655,13 +654,6 @@ class TrytondXmlHandler(sax.handler.ContentHandler):
                         lambda *a: None)()
                 else:
                     expected_value = old_values[key]
-
-                # Migration from 2.0: Reference field change value
-                field_type = Model._fields[key]._type
-                if field_type == 'reference':
-                    if (expected_value and expected_value.endswith(',0')
-                            and not db_field):
-                        db_field = expected_value
 
                 # ... and we consider that there is an update if the
                 # expected value differs from the actual value, _and_
@@ -680,13 +672,10 @@ class TrytondXmlHandler(sax.handler.ContentHandler):
 
             if self.grouped:
                 self.grouped_write[(module, model)].extend(
-                    (record, to_update, old_values, fs_id, mdata_id))
+                    (record, to_update, old_values, values, fs_id, mdata_id))
             else:
-                self.write_records(module, model, record, to_update,
-                    old_values, fs_id, mdata_id)
-            self.grouped_model_data.extend(([self.ModelData(mdata_id)], {
-                        'fs_values': self.ModelData.dump_values(values),
-                        }))
+                self.write_records(module, model,
+                    record, to_update, old_values, values, fs_id, mdata_id)
         else:
             if self.grouped:
                 self.grouped_creations[model][fs_id] = values
@@ -696,11 +685,11 @@ class TrytondXmlHandler(sax.handler.ContentHandler):
     def create_records(self, model, vlist, fs_ids):
         Model = self.pool.get(model)
 
-        with Transaction().set_context(module=self.module, language='en_US'):
+        with Transaction().set_context(module=self.module, language='en'):
             records = Model.create(vlist)
 
         mdata_values = []
-        for record, values, fs_id in izip(records, vlist, fs_ids):
+        for record, values, fs_id in zip(records, vlist, fs_ids):
             for key in values:
                 values[key] = self._clean_value(key, record)
 
@@ -716,7 +705,7 @@ class TrytondXmlHandler(sax.handler.ContentHandler):
 
         models_data = self.ModelData.create(mdata_values)
 
-        for record, values, fs_id, mdata in izip(
+        for record, values, fs_id, mdata in zip(
                 records, vlist, fs_ids, models_data):
             self.fs2db.set(self.module, fs_id, {
                     'db_id': record.id,
@@ -728,20 +717,20 @@ class TrytondXmlHandler(sax.handler.ContentHandler):
             [r.id for r in records])
 
     def write_records(self, module, model,
-            record, values, old_values, fs_id, mdata_id, *args):
-        args = (record, values, old_values, fs_id, mdata_id) + args
+            record, values, old_values, new_values, fs_id, mdata_id, *args):
+        args = (record, values, old_values, new_values, fs_id, mdata_id) + args
         Model = self.pool.get(model)
 
         actions = iter(args)
         to_update = []
-        for record, values, _, _, _ in zip(*((actions,) * 5)):
+        for record, values, _, _, _, _ in zip(*((actions,) * 6)):
             if values:
                 to_update += [[record], values]
         # if there is values to update:
         if to_update:
             # write the values in the db:
             with Transaction().set_context(
-                    module=module, language='en_US'):
+                    module=module, language='en'):
                 Model.write(*to_update)
             self.fs2db.reset_browsercord(
                 module, Model.__name__, sum(to_update[::2], []))
@@ -759,23 +748,26 @@ class TrytondXmlHandler(sax.handler.ContentHandler):
                 values[key] = self._clean_value(key, record)
 
         actions = iter(args)
-        for record, values, old_values, fs_id, mdata_id in zip(
-                *((actions,) * 5)):
+        for record, values, old_values, new_values, fs_id, mdata_id in zip(
+                *((actions,) * 6)):
             temp_values = old_values.copy()
             temp_values.update(values)
             values = temp_values
+            fs_values = old_values.copy()
+            fs_values.update(new_values)
 
-            if values != old_values:
+            if values != fs_values:
                 self.grouped_model_data.extend(([self.ModelData(mdata_id)], {
                             'fs_id': fs_id,
                             'model': model,
                             'module': module,
                             'db_id': record.id,
                             'values': self.ModelData.dump_values(values),
+                            'fs_values': self.ModelData.dump_values(fs_values),
                             }))
 
         # reset_browsercord to keep cache memory low
-        self.fs2db.reset_browsercord(module, Model.__name__, args[::5])
+        self.fs2db.reset_browsercord(module, Model.__name__, args[::6])
 
 
 def post_import(pool, module, to_delete):
@@ -809,7 +801,6 @@ def post_import(pool, module, to_delete):
                 logger.warning(
                     'Could not delete id %d of model %s because model no '
                     'longer exists.', db_id, model)
-            transaction.commit()
         except Exception:
             transaction.rollback()
             logger.error(
@@ -829,6 +820,7 @@ def post_import(pool, module, to_delete):
                     logger.error(
                         'Could not inactivate id: %d of model %s\n',
                         db_id, model, exc_info=True)
+        transaction.commit()
 
     # Clean model_data:
     if mdata_delete:

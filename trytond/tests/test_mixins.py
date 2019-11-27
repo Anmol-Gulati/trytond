@@ -4,10 +4,12 @@
 
 import unittest
 
-from trytond.tests.test_tryton import install_module, with_transaction
-from trytond.transaction import Transaction
+from trytond.tests.test_tryton import activate_module, with_transaction
+from trytond.model import ModelView
 from trytond.pool import Pool
 from trytond.url import HOSTNAME
+
+from .mixin import TestMixin, TestSecondMixin, NotMixin
 
 
 class UrlTestCase(unittest.TestCase):
@@ -15,7 +17,7 @@ class UrlTestCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        install_module('tests')
+        activate_module('tests')
 
     @with_transaction()
     def testModelURL(self):
@@ -36,16 +38,81 @@ class UrlTestCase(unittest.TestCase):
         "Test wizard URLs"
         pool = Pool()
         UrlWizard = pool.get('test.test_wizard', type='wizard')
-        db_name = Transaction().database.name
 
         self.assertEqual(UrlWizard.__url__,
             'https://%s/client/#/wizard/test.test_wizard' % (
                 HOSTNAME, ))
 
 
+class MixinTestCase(unittest.TestCase):
+    "Test Mixin"
+
+    @classmethod
+    def setUpClass(cls):
+        activate_module('tests')
+
+    @with_transaction()
+    def test_mixin_on_modelview(self):
+        "Test all ModelView and only ModelView are subclass of TestMixin"
+        for _, model in Pool().iterobject():
+            self.assertEqual(
+                issubclass(model, ModelView),
+                issubclass(model, TestMixin))
+
+    @with_transaction()
+    def test_second_mixin_on_modelview(self):
+        "Test all ModelView and only ModelView are subclass of TestSecondMixin"
+        for _, model in Pool().iterobject():
+            self.assertEqual(
+                issubclass(model, ModelView),
+                issubclass(model, TestSecondMixin))
+
+    @with_transaction()
+    def test_no_mixin(self):
+        "Test any model are subclass of NotMixin"
+        for _, model in Pool().iterobject():
+            self.assertFalse(issubclass(model, NotMixin))
+
+
+class DeactivableMixinTestCase(unittest.TestCase):
+    "Test DeactivableMixin"
+
+    @classmethod
+    def setUpClass(cls):
+        activate_module('tests')
+
+    @with_transaction()
+    def test_deactivable_default_active(self):
+        pool = Pool()
+        Deactivable = pool.get('test.deactivable.modelsql')
+
+        deactivable = Deactivable()
+        deactivable.save()
+
+        self.assertEqual(deactivable.active, True)
+
+    @with_transaction()
+    def test_search_deactivable(self):
+        pool = Pool()
+        Deactivable = pool.get('test.deactivable.modelsql')
+
+        active = Deactivable()
+        active.save()
+        inactive = Deactivable()
+        inactive.active = False
+        inactive.save()
+
+        for domain, founds in [
+                ([], [active]),
+                ([('active', '=', False)], [inactive]),
+                ([('active', 'in', [True, False])], [active, inactive]),
+                ]:
+            self.assertListEqual(Deactivable.search(domain), founds)
+
+
 def suite():
     func = unittest.TestLoader().loadTestsFromTestCase
     suite = unittest.TestSuite()
-    for testcase in (UrlTestCase,):
+    for testcase in [UrlTestCase, MixinTestCase]:
         suite.addTests(func(testcase))
     return suite

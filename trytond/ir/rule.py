@@ -4,7 +4,6 @@ from ..model import ModelView, ModelSQL, fields, EvalEnvironment, Check
 from ..transaction import Transaction
 from ..cache import Cache
 from ..pool import Pool
-from .. import backend
 from ..pyson import PYSONDecoder
 
 __all__ = [
@@ -17,7 +16,7 @@ class RuleGroup(ModelSQL, ModelView):
     __name__ = 'ir.rule.group'
     name = fields.Char('Name', select=True)
     model = fields.Many2One('ir.model', 'Model', select=True,
-        required=True)
+        required=True, ondelete='CASCADE')
     global_p = fields.Boolean('Global', select=True,
         help="Make the rule global \nso every users must follow this rule")
     default_p = fields.Boolean('Default', select=True,
@@ -26,9 +25,6 @@ class RuleGroup(ModelSQL, ModelView):
         help="The rule is satisfied if at least one test is True")
     groups = fields.Many2Many('ir.rule.group-res.group',
         'rule_group', 'group', 'Groups')
-    # TODO remove to only use groups
-    users = fields.Many2Many('ir.rule.group-res.user',
-        'rule_group', 'user', 'Users')
     perm_read = fields.Boolean('Read Access')
     perm_write = fields.Boolean('Write Access')
     perm_create = fields.Boolean('Create Access')
@@ -110,18 +106,6 @@ class Rule(ModelSQL, ModelView):
                 })
 
     @classmethod
-    def __register__(cls, module_name):
-        TableHandler = backend.get('TableHandler')
-        super(Rule, cls).__register__(module_name)
-        table = TableHandler(cls, module_name)
-
-        # Migration from 2.6: replace field, operator and operand by domain
-        table.not_null_action('field', action='remove')
-        table.drop_fk('field')
-        table.not_null_action('operator', action='remove')
-        table.not_null_action('operand', action='remove')
-
-    @classmethod
     def validate(cls, rules):
         super(Rule, cls).validate(rules)
         cls.check_domain(rules)
@@ -177,14 +161,12 @@ class Rule(ModelSQL, ModelView):
         pool = Pool()
         RuleGroup = pool.get('ir.rule.group')
         Model = pool.get('ir.model')
-        RuleGroup_User = pool.get('ir.rule.group-res.user')
         RuleGroup_Group = pool.get('ir.rule.group-res.group')
         User_Group = pool.get('res.user-res.group')
 
         cursor = Transaction().connection.cursor()
         rule_table = cls.__table__()
         rule_group = RuleGroup.__table__()
-        rule_group_user = RuleGroup_User.__table__()
         rule_group_group = RuleGroup_Group.__table__()
         user_group = User_Group.__table__()
         model = Model.__table__()
@@ -197,9 +179,7 @@ class Rule(ModelSQL, ModelView):
                 where=(model.model == model_name)
                 & (getattr(rule_group, 'perm_%s' % mode) == True)
                 & (rule_group.id.in_(
-                        rule_group_user.select(rule_group_user.rule_group,
-                            where=rule_group_user.user == user_id)
-                        | rule_group_group.join(
+                        rule_group_group.join(
                             user_group,
                             condition=(rule_group_group.group
                                 == user_group.group)
@@ -236,10 +216,7 @@ class Rule(ModelSQL, ModelView):
                 ).select(rule_group.id,
                 where=(model.model == model_name)
                 & ~rule_group.id.in_(rule_table.select(rule_table.rule_group))
-                & rule_group.id.in_(rule_group_user.select(
-                        rule_group_user.rule_group,
-                        where=rule_group_user.user == user_id)
-                    | rule_group_group.join(user_group,
+                & rule_group.id.in_(rule_group_group.join(user_group,
                         condition=rule_group_group.group == user_group.group
                         ).select(rule_group_group.rule_group,
                         where=user_group.user == user_id))))
@@ -247,11 +224,11 @@ class Rule(ModelSQL, ModelView):
         if fetchone:
             group_id = fetchone[0]
             clause[group_id] = []
-        clause = clause.values()
+        clause = list(clause.values())
         if clause:
             clause.insert(0, 'OR')
 
-        clause_global = clause_global.values()
+        clause_global = list(clause_global.values())
 
         if clause_global:
             clause_global.insert(0, 'AND')

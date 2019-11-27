@@ -1,18 +1,10 @@
 # -*- coding: utf-8 -*-
 # This file is part of Tryton.  The COPYRIGHT file at the top level of
 # this repository contains the full copyright notices and license terms.
-import sys
-try:
-    import cdecimal
-    if 'decimal' not in sys.modules:
-        sys.modules['decimal'] = cdecimal
-except ImportError:
-    import decimal
-    sys.modules['cdecimal'] = decimal
 import unittest
 from decimal import Decimal
 import datetime
-from trytond.tests.test_tryton import install_module, with_transaction
+from trytond.tests.test_tryton import activate_module, with_transaction
 from trytond.pool import Pool
 
 
@@ -21,7 +13,7 @@ class ExportDataTestCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        install_module('tests')
+        activate_module('tests')
 
     @with_transaction()
     def test_boolean(self):
@@ -168,7 +160,7 @@ class ExportDataTestCase(unittest.TestCase):
         export1, = ExportData.create([{
                     'date': datetime.date(2010, 1, 1),
                     }])
-        self.assert_(ExportData.export_data([export1],
+        self.assertTrue(ExportData.export_data([export1],
             ['date']) == [[datetime.date(2010, 1, 1)]])
 
         export2, = ExportData.create([{
@@ -341,7 +333,7 @@ class ExportDataTestCase(unittest.TestCase):
         ExportData = pool.get('test.export_data')
         ExportDataTarget = pool.get('test.export_data.target')
 
-        target1, = ExportDataTarget.create([{}])
+        target1, = ExportDataTarget.create([{'name': "Target test"}])
         export1, = ExportData.create([{
                     'reference': str(target1),
                     }])
@@ -359,6 +351,14 @@ class ExportDataTestCase(unittest.TestCase):
             ExportData.export_data([export1, export2],
                 ['reference']),
             [[str(target1)], ['']])
+
+        self.assertEqual(
+            ExportData.export_data([export1], ['reference/rec_name']),
+            [[target1.rec_name]])
+
+        self.assertEqual(
+            ExportData.export_data([export1], ['reference.translated']),
+            [["Target"]])
 
 
 def suite():

@@ -9,13 +9,12 @@ from email.mime.text import MIMEText
 from email.header import Header
 from ast import literal_eval
 
-from ..model import ModelView, ModelSQL, fields, dualmethod
+from ..model import ModelView, ModelSQL, DeactivableMixin, fields, dualmethod
 from ..transaction import Transaction
 from ..pool import Pool
-from .. import backend
 from ..config import config
-from ..cache import Cache
 from ..sendmail import sendmail
+from trytond.worker import run_task
 
 __all__ = [
     'Cron',
@@ -32,7 +31,7 @@ _INTERVALTYPES = {
 }
 
 
-class Cron(ModelSQL, ModelView):
+class Cron(DeactivableMixin, ModelSQL, ModelView):
     "Cron"
     __name__ = "ir.cron"
     name = fields.Char('Name', required=True, translate=True)
@@ -42,7 +41,6 @@ class Cron(ModelSQL, ModelView):
     request_user = fields.Many2One(
         'res.user', 'Request User', required=True,
         help="The user who will receive requests in case of failure")
-    active = fields.Boolean('Active', select=True)
     interval_number = fields.Integer('Interval Number', required=True)
     interval_type = fields.Selection([
             ('minutes', 'Minutes'),
@@ -72,29 +70,9 @@ class Cron(ModelSQL, ModelView):
                 })
         cls._buttons.update({
                 'run_once': {
-                    'icon': 'tryton-executable',
+                    'icon': 'tryton-launch',
                     },
                 })
-
-    @classmethod
-    def __register__(cls, module_name):
-        TableHandler = backend.get('TableHandler')
-        cursor = Transaction().connection.cursor()
-        cron = cls.__table__()
-
-        # Migration from 2.0: rename numbercall, doall and nextcall
-        table = TableHandler(cls, module_name)
-        table.column_rename('numbercall', 'number_calls')
-        table.column_rename('doall', 'repeat_missed')
-        table.column_rename('nextcall', 'next_call')
-        table.drop_column('running')
-
-        super(Cron, cls).__register__(module_name)
-
-        # Migration from 2.0: work_days removed
-        cursor.execute(*cron.update(
-                [cron.interval_type], ['days'],
-                where=cron.interval_type == 'work_days'))
 
     @staticmethod
     def default_next_call():
@@ -111,10 +89,6 @@ class Cron(ModelSQL, ModelView):
     @staticmethod
     def default_number_calls():
         return -1
-
-    @staticmethod
-    def default_active():
-        return True
 
     @staticmethod
     def default_repeat_missed():
@@ -181,7 +155,6 @@ class Cron(ModelSQL, ModelView):
     def run(cls, db_name):
         now = datetime.datetime.now()
         with Transaction().start(db_name, 0) as transaction:
-            Cache.clean(db_name)
             transaction.database.lock(transaction.connection, cls._table)
             crons = cls.search([
                     ('number_calls', '!=', 0),
@@ -214,4 +187,6 @@ class Cron(ModelSQL, ModelView):
                 except Exception:
                     transaction.rollback()
                     logger.error('Running cron %s', cron.id, exc_info=True)
-            Cache.resets(db_name)
+        while transaction.tasks:
+            task_id = transaction.tasks.pop()
+            run_task(db_name, task_id)

@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!-- This file is part of Tryton.  The COPYRIGHT file at the top level of
 this repository contains the full copyright notices and license terms. -->
-<form string="Model Data">
+<form>
     <label name="module"/>
     <field name="module"/>
     <label name="model"/>
@@ -15,7 +15,7 @@ this repository contains the full copyright notices and license terms. -->
     <newline/>
     <label name="out_of_sync"/>
     <field name="out_of_sync"/>
-    <button string="Sync" name="sync" colspan="2"/>
+    <button name="sync" colspan="2"/>
     <group id="values" colspan="2" yexpand="1" yfill="1" col="1">
         <separator name="values"/>
         <field name="values"/>

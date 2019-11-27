@@ -48,26 +48,6 @@ class TableHandlerInterface(object):
         '''
         raise NotImplementedError
 
-    @staticmethod
-    def sequence_exist(sequence_name):
-        '''
-        Sequence exist
-
-        :param sequence_name: the sequence name
-        :return: a boolean
-        '''
-        raise NotImplementedError
-
-    @staticmethod
-    def sequence_rename(old_name, new_name):
-        '''
-        Rename sequence
-
-        :param old_name: the old sequence name
-        :param new_name: the new sequence name
-        '''
-        raise NotImplementedError
-
     def column_exist(self, column_name):
         '''
         Column exist
@@ -77,14 +57,12 @@ class TableHandlerInterface(object):
         '''
         raise NotImplementedError
 
-    def column_rename(self, old_name, new_name, exception=False):
+    def column_rename(self, old_name, new_name):
         '''
-        Rename column
+        Rename column if exists
 
         :param old_name: the name of the existing column
         :param new_name: the new name of the column
-        :param exception: a boolean to raise or not an exception
-            if it is not possible to rename the column.
         '''
         raise NotImplementedError
 
@@ -115,19 +93,14 @@ class TableHandlerInterface(object):
         '''
         raise NotImplementedError
 
-    def add_raw_column(self, column_name, column_type, column_format,
-            default_fun=None, field_size=None, migrate=True,
-            string=''):
+    def add_column(self, column_name, abstract_type, default=None, comment=''):
         '''
         Add a column
 
         :param column_name: the column name
-        :param column_type: the column definition
-        :param column_format: the function to format default value
-        :param default_fun: the function that return the default value
-        :param field_size: the size of the column if there is one
-        :param migrate: boolean to try to migrate the column if exists
-        :param string: the label of the column
+        :param abstract_type: the abstract type that will represent this column
+        :param default: the method that return default value to use
+        :param comment: An optional comment on the column
         '''
         raise NotImplementedError
 
@@ -150,12 +123,13 @@ class TableHandlerInterface(object):
         '''
         raise NotImplementedError
 
-    def index_action(self, column_name, action='add', table=None):
+    def index_action(self, columns, action='add', where=None, table=None):
         '''
         Add/remove an index
 
-        :param column_name: the column name or a list of column name
+        :param columns: the column or a list of columns/expressions
         :param action: 'add' or 'remove'
+        :param where: predicate expression
         :param table: optional table name
         '''
         raise NotImplementedError
@@ -169,35 +143,29 @@ class TableHandlerInterface(object):
         '''
         raise NotImplementedError
 
-    def add_constraint(self, ident, constraint, exception=False):
+    def add_constraint(self, ident, constraint):
         '''
         Add a constraint
 
         :param ident: the name of the constraint
         :param constraint: the definition of the constraint
-        :param exception: a boolean to raise or not an exception
-            if it is not possible to add the constraint
         '''
         raise NotImplementedError
 
-    def drop_constraint(self, ident, exception=False, table=None):
+    def drop_constraint(self, ident, table=None):
         '''
         Remove a constraint
 
         :param ident: the name of the constraint
-        :param exception: a boolean to raise or not an exception
-            if it is not possible to remove the constraint
         :param table: optional table name
         '''
         raise NotImplementedError
 
-    def drop_column(self, column_name, exception=False):
+    def drop_column(self, column_name):
         '''
         Remove a column
 
         :param column_name: the column name
-        :param exception: a boolean to raise or not an exception
-            if it is not possible to remove the column
         '''
         raise NotImplementedError
 
@@ -220,5 +188,7 @@ class TableHandlerInterface(object):
         :param name: the data name
         '''
         if cls.namedatalen and len(name) >= cls.namedatalen:
+            if isinstance(name, str):
+                name = name.encode('utf-8')
             name = hashlib.sha256(name).hexdigest()[:cls.namedatalen - 1]
         return name

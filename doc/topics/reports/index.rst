@@ -10,7 +10,9 @@ format, explained later, is interpolated with dynamic data and placed into a
 document of the same file format. Tryton's ability to generate documents in
 this way allows documents to be generated for any editor that supports the Open
 Document Format which can be converted to third party formats, such as PDF.
-Extra libraries are required for this, see INSTALL for more information.
+`LibreOffice`_ must be installed on the server host for format conversion.
+
+.. _LibreOffice: https://www.libreoffice.org/
 
 Report Templates
 ================
@@ -22,20 +24,6 @@ Here is an example of the text that would be placed in an open document text
 document, ``*.odt``, that displays the full name and the address lines of the
 first address of each party. The genshi code is placed in the template using
 ``Functions->Placeholder->Text`` Fields. These are specific to ODT files.
-
-.. highlight:: genshi
-
-::
-
-  <for each="party in objects">
-    <party.full_name>
-    <if test="party.addresses">
-      <for each="line in party.addresses[0].full_address.split('\n')">
-        <line>
-      </for>
-    </if>
-  </for>
-
 
 Report API
 ==========
@@ -63,6 +51,10 @@ When defining an `ir.action.report` the following attributes are available:
       example my_module/my_report.odt.
 
     * ``template_extension``: The template format.
+
+    * ``single``: `True` if the template works only for one record. If such
+      report is called with more than one record, a zip file containing all the
+      reports will be generated.
 
 
 Report Usage
@@ -101,10 +93,8 @@ steps:
 
     * Set the zoom to 100% (View>Zoom)
 
-    * Set the document in read-only mode
-
- (``Tools>Options>OpenOffice.org>Security``) (Decreases the time it takes to
- open the document.)
+    * Set the document in read-only mode (``File>Properties>Security``)
+      (Decreases the time it takes to open the document.)
 
  - Usage
 
@@ -145,12 +135,12 @@ Accessing models from within the report
 ---------------------------------------
 
 By default instances of the models the report is for are passed in to the
-report via a list of objects called `objects`.  These objects behave just as
-they would within trytond itself. You can access any of the models relations as
-well.  For example within the invoice report each object is an invoice and you
-can access the name of the party of the invoice via `invoice.party.name`.
-Additional objects can be passed to a report. This is discussed below in
-`Passing custom data to a report`.
+report via a list of objects called `records` (or `record` if `single` is
+`True`).  These records behave just as they would within trytond itself. You
+can access any of the models relations as well.  For example within the invoice
+report each object is an invoice and you can access the name of the party of
+the invoice via `invoice.party.name`.  Additional objects can be passed to a
+report. This is discussed below in `Passing custom data to a report`.
 
 Within Tryton the underlying model the report can be found by following the
 Menu to ``Administration > UI > Actions > Report``. Furthermore in tryton the
@@ -162,7 +152,13 @@ for the party of an invoice.
 Creating a simple report template for a model from client
 ---------------------------------------------------------
 
-TODO: Explain the steps necessary to do this.
+Once you have created a report template it has to be uploaded to trytond. This
+can be done by creating a new record in the
+``Administration > UI > Actions > Report`` menu. Just make sure to include the
+template file in the content field.
+
+In order to make the report printable from a model create a "Print form"
+keyword related to the model where the report should be available.
 
 Creating a simple report template for a model in XML
 ----------------------------------------------------
@@ -178,34 +174,44 @@ Replacing existing Tryton reports
 To replace an existing report you must deactivate the old report and activate
 the new report.
 
-For example to deactivate the invoice report:
+For example to deactivate the sale report:
 
 .. highlight:: xml
 
 ::
 
-  <record model="ir.action.report" id="account_invoice.report_invoice">
+  <record model="ir.action.report" id="sale.report_sale">
     <field name="active" eval="False"/>
   </record>
 
-Then you must activate the new invoice report that exists in your new module:
+Then you must activate the new sale report that exists in your new module:
 
 .. highlight:: xml
 
 ::
 
-  <record model="ir.action.report" id="report_invoice_new">
-    <field name="name">Invoice</field>
-    <field name="report_name">account.invoice</field>
-    <field name="model">account.invoice</field>
-    <field name="report">my_module/invoice.odt</field>
+  <record model="ir.action.report" id="report_sale">
+    <field name="name">Sale</field>
+    <field name="report_name">sale.sale</field>
+    <field name="model">sale.sale</field>
+    <field name="report">my_module/sale.odt</field>
     <field name="template_extension">odt</field>
+  </record>
+
+And create the keyword for the new report:
+
+.. highlight:: xml
+
+::
+
+  <record model="ir.action.keyword" id="report_sale_keyword">
+      <field name="keyword">form_print</field>
+      <field name="model">sale.sale,-1</field>
+      <field name="action" ref="report_sale"/>
   </record>
 
 Passing custom data to a report
 -------------------------------
-
-TODO: Examples of overriding Report.execute.
 
 In this example `Report.get_context` is overridden and an employee
 object is set into context.  Now the invoice report will be able to access the
@@ -237,8 +243,8 @@ employee object.
 
 .. _Genshi XML Templates: http://genshi.edgewall.org/wiki/Documentation/0.5.x/xml-templates.html
 
-.. _Quick Example: http://code.google.com/p/python-relatorio/wiki/QuickExample
+.. _Quick Example: https://relatorio.readthedocs.io/en/latest/quickexample.html
 
-.. _In Depth Introduction: http://code.google.com/p/python-relatorio/wiki/IndepthIntroduction
+.. _In Depth Introduction: https://relatorio.readthedocs.io/en/latest/indepthexample.html
 
-.. _Example Documents: http://code.google.com/p/python-relatorio/source/browse/#hg%2Fexamples
+.. _Example Documents: http://hg.tryton.org/relatorio/file/default/examples

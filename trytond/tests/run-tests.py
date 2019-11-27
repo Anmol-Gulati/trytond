@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # This file is part of Tryton.  The COPYRIGHT file at the top level of
 # this repository contains the full copyright notices and license terms.
 import logging
@@ -28,7 +28,9 @@ parser.add_argument("-v", action="count", default=0, dest="verbosity",
     help="Increase verbosity")
 parser.add_argument('tests', metavar='test', nargs='*')
 parser.epilog = ('The database name can be specified in the DB_NAME '
-    'environment variable.')
+    'environment variable.\n'
+    "A database dump cache directory can be specified in the DB_CACHE "
+    "environment variable. Dumps will be used to speed up re-run of tests.")
 opt = parser.parse_args()
 
 config.update_etc(opt.config)

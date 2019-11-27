@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # This file is part of Tryton.  The COPYRIGHT file at the top level of
 # this repository contains the full copyright notices and license terms.
 
@@ -20,6 +20,7 @@ def get_version():
     return re.search('__version__ = "([0-9\w.]*)"', init).group(1)
 
 
+
 version = get_version()
 major_version, minor_version, _ = version.split('.', 2)
 major_version = int(major_version)
@@ -34,7 +35,7 @@ if minor_version % 2:
         name, name, version)
 
 if platform.python_implementation() == 'PyPy':
-    pg_require = ['psycopg2cffi >= 2.5']
+    pg_require = ['psycopg2cffi >= 2.5.4']
 else:
     pg_require = ['psycopg2-binary >= 2.5']
 
@@ -51,22 +52,27 @@ setup(name=name,
             '*.proteus.*', 'proteus.*', 'proteus']),
     package_data={
         'trytond': ['ir/ui/icons/*.svg'],
-        'trytond.backend.mysql': ['init.sql'],
         'trytond.backend.postgresql': ['init.sql'],
         'trytond.backend.sqlite': ['init.sql'],
         'trytond.ir': ['tryton.cfg', '*.xml', 'view/*.xml', 'locale/*.po'],
         'trytond.ir.module': ['*.xml'],
         'trytond.ir.ui': ['*.xml', '*.rng', '*.rnc'],
-        'trytond.res': ['tryton.cfg', '*.xml', 'view/*.xml', 'locale/*.po'],
-        'trytond.tests': ['tryton.cfg', '*.xml'],
+        'trytond.res': [
+            'tryton.cfg', '*.xml', '*.html', 'view/*.xml', 'locale/*.po'],
+        'trytond.tests': ['tryton.cfg', '*.xml', 'forbidden.txt'],
         },
-    scripts=['bin/trytond', 'bin/trytond-admin', 'bin/trytond-cron'],
+    scripts=[
+        'bin/trytond',
+        'bin/trytond-admin',
+        'bin/trytond-cron',
+        'bin/trytond-worker',
+        ],
     classifiers=[
         'Development Status :: 5 - Production/Stable',
         'Environment :: No Input/Output (Daemon)',
         'Framework :: Tryton',
         'Intended Audience :: Developers',
-        'License :: OSI Approved :: GNU General Public License (GPL)',
+        'License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)',
         'Natural Language :: Bulgarian',
         'Natural Language :: Catalan',
         'Natural Language :: Chinese (Simplified)',
@@ -77,46 +83,49 @@ setup(name=name,
         'Natural Language :: German',
         'Natural Language :: Hungarian',
         'Natural Language :: Italian',
+        'Natural Language :: Persian',
+        'Natural Language :: Polish',
         'Natural Language :: Portuguese (Brazilian)',
         'Natural Language :: Russian',
         'Natural Language :: Slovenian',
         'Natural Language :: Spanish',
         'Operating System :: OS Independent',
-        'Programming Language :: Python :: 2.7',
-        'Programming Language :: Python :: 3.3',
         'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: Implementation :: CPython',
         'Programming Language :: Python :: Implementation :: PyPy',
         'Topic :: Software Development :: Libraries :: Application Frameworks',
         ],
     platforms='any',
     license='GPL-3',
+    python_requires='>=3.4',
     install_requires=[
-        'lxml >= 2.0',
-        'relatorio >= 0.2.0',
+        'lxml >= 2.0; python_version != "3.4"',
+        'lxml >=2.0, < 4.4; python_version == "3.4"',
+        'relatorio[fodt] >= 0.7.0',
         'Genshi',
         'python-dateutil',
         'polib',
-        'python-sql >= 0.4',
+        'python-sql >= 0.5',
         'werkzeug',
         'wrapt',
+<<<<<<< HEAD
         'fulfil-s3-temp-storage',
         'unicodecsv',
+=======
+        'passlib',
+>>>>>>> 9ec0d1a20a8369935d148acb9989a8afbe9d5308
         ],
     extras_require={
         'PostgreSQL': pg_require,
-        'MySQL': ['MySQL-python'],
-        'unoconv': ['unoconv'],
         'graphviz': ['pydot'],
-        'simplejson': ['simplejson'],
-        'cdecimal': ['cdecimal'],
         'Levenshtein': ['python-Levenshtein'],
-        'BCrypt': ['bcrypt'],
+        'BCrypt': ['passlib[bcrypt]'],
+        'html2text': ['html2text'],
         },
     zip_safe=False,
     test_suite='trytond.tests',
     test_loader='trytond.test_loader:Loader',
-    tests_require=['mock'],
-    use_2to3=True,
     )

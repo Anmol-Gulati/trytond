@@ -1,6 +1,7 @@
 CREATE TABLE ir_configuration (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    language VARCHAR
+    language VARCHAR,
+    hostname VARCHAR
 );
 
 CREATE TABLE ir_model (
@@ -57,6 +58,7 @@ CREATE TABLE ir_lang (
     name VARCHAR,
     code VARCHAR,
     translatable BOOLEAN,
+    parent VARCHAR,
     active BOOLEAN,
     direction VARCHAR
 );
@@ -100,4 +102,10 @@ CREATE TABLE ir_module_dependency (
     write_uid INTEGER,
     name VARCHAR,
     module INTEGER
+);
+
+CREATE TABLE ir_cache (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name VARCHAR,
+    "timestamp" TIMESTAMP
 );

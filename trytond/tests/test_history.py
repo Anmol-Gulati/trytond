@@ -3,7 +3,7 @@
 import unittest
 import datetime
 
-from trytond.tests.test_tryton import install_module, with_transaction
+from trytond.tests.test_tryton import activate_module, with_transaction
 from trytond.transaction import Transaction
 from trytond.pool import Pool
 from trytond.exceptions import UserError
@@ -15,18 +15,20 @@ class HistoryTestCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        install_module('tests')
+        activate_module('tests')
 
     @with_transaction()
     def tearDown(self):
         pool = Pool()
         History = pool.get('test.history')
+        HistoryLine = pool.get('test.history.line')
         transaction = Transaction()
         cursor = transaction.connection.cursor()
-        table = History.__table__()
-        history_table = History.__table_history__()
-        cursor.execute(*table.delete())
-        cursor.execute(*history_table.delete())
+        for Model in [History, HistoryLine]:
+            table = Model.__table__()
+            history_table = Model.__table_history__()
+            cursor.execute(*table.delete())
+            cursor.execute(*history_table.delete())
         transaction.commit()
 
     @with_transaction()
@@ -140,9 +142,9 @@ class HistoryTestCase(unittest.TestCase):
 
         revisions = History.history_revisions([history_id])
         self.assertEqual(revisions, [
-                (third, history_id, u'Administrator'),
-                (second, history_id, u'Administrator'),
-                (first, history_id, u'Administrator'),
+                (third, history_id, 'Administrator'),
+                (second, history_id, 'Administrator'),
+                (first, history_id, 'Administrator'),
                 ])
 
     @with_transaction()
@@ -344,6 +346,40 @@ class HistoryTestCase(unittest.TestCase):
             transaction.rollback()
 
     @with_transaction()
+    def test_ordered_search_nested(self):
+        "Test ordered search nested"
+        pool = Pool()
+        History = pool.get('test.history')
+        HistoryLine = pool.get('test.history.line')
+        transaction = Transaction()
+        order = [('history.value', 'ASC')]
+
+        history = History(value=1)
+        history.save()
+        history2 = History(value=2)
+        history2.save()
+        line = HistoryLine(history=history)
+        line.save()
+        line2 = HistoryLine(history=history2)
+        line2.save()
+        first_stamp = line2.create_date
+        transaction.commit()
+
+        history.value = 3
+        history.save()
+        second_stamp = history.write_date
+        transaction.commit()
+
+        results = [
+            (first_stamp, [line, line2]),
+            (second_stamp, [line2, line]),
+            ]
+        for timestamp, instances in results:
+            with Transaction().set_context(_datetime=timestamp):
+                records = HistoryLine.search([], order=order)
+                self.assertListEqual(records, instances)
+
+    @with_transaction()
     def test_browse(self):
         'Test browsing history'
         pool = Pool()
@@ -429,7 +465,7 @@ class HistoryTestCase(unittest.TestCase):
         transaction = Transaction()
         database = transaction.database
 
-        for i in xrange(0, 2):
+        for i in range(0, 2):
             history = History(value=-1)
             history.save()
 

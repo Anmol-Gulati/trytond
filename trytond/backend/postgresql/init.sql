@@ -3,6 +3,7 @@ CREATE SEQUENCE ir_configuration_id_seq;
 CREATE TABLE ir_configuration (
     id INTEGER DEFAULT NEXTVAL('ir_configuration_id_seq') NOT NULL,
     language VARCHAR,
+    hostname VARCHAR,
     PRIMARY KEY(id)
 );
 
@@ -78,6 +79,7 @@ CREATE TABLE ir_lang (
     name VARCHAR NOT NULL,
     code VARCHAR NOT NULL,
     translatable BOOLEAN NOT NULL,
+    parent VARCHAR,
     active BOOLEAN NOT NULL,
     direction VARCHAR NOT NULL,
     PRIMARY KEY(id)
@@ -148,4 +150,12 @@ CREATE TABLE ir_module_dependency (
     FOREIGN KEY (create_uid) REFERENCES res_user ON DELETE SET NULL,
     FOREIGN KEY (write_uid) REFERENCES res_user ON DELETE SET NULL,
     FOREIGN KEY (module) REFERENCES ir_module ON DELETE CASCADE
+);
+
+CREATE SEQUENCE ir_cache_id_seq;
+
+CREATE TABLE ir_cache (
+    id INTEGER DEFAULT NEXTVAL('ir_cache_id_seq') NOT NULL,
+    name VARCHAR NOT NULL,
+    "timestamp" TIMESTAMP WITHOUT TIME ZONE
 );

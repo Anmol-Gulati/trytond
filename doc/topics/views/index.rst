@@ -101,6 +101,15 @@ List of attributes shared by many form elements:
 
     * ``colspan``: The number of columns the widget must take in the table.
 
+    .. _common-attributes-col:
+
+    * ``col``: The number of columns the container must have.
+
+      A negative value (or zero) will remove the constraint on the number of
+      columns.
+
+      The default value is 4.
+
     .. _common-attributes-states:
 
     * ``states``: A string of :ref:`PYSON statement <topics-pyson>` that will
@@ -119,6 +128,9 @@ List of attributes shared by many form elements:
 
         * ``pre_validate``: Only for button, it contains a domain to apply
           on the record before calling the button.
+
+        * ``depends``: Only for button, it must return the list of field on
+          which the button depends.
 
     .. _common-attributes-help:
 
@@ -154,9 +166,6 @@ form
 
 Each form view must start with this tag.
 
-    * ``string``: The text that will be used as default title for the tab or
-      the window.
-
     .. _form-attributes-on_write:
 
     * ``on_write``: The name of a method on the Model of the view that will be
@@ -170,7 +179,7 @@ Each form view must start with this tag.
         The method must be registered in :attr:`trytond.model.Model.__rpc__`.
       ..
 
-    * ``col``: The number of columns for the view.
+    * ``col``: see in common-attributes-col_.
 
     * ``cursor``: The name of the field that must have the cursor by default.
 
@@ -232,7 +241,8 @@ Display a field of the object with the value of the current record.
       ``tree,form``)
 
     * ``view_ids``: A comma separated list that specifies the view ids used to
-      display the relation.
+      display the relation. For Many2One and Many2Many, the order should always
+      be tree then form.
 
     * ``product``: Only for One2Many fields, a comma separated list of target
       field name used to create records from the cartesian product.
@@ -245,6 +255,9 @@ Display a field of the object with the value of the current record.
 
     * ``filename_visible``: Only for Binary fields, boolean that enables the
       display of the filename.
+
+    * ``toolbar``: Only for Rich Text widget, boolean that enables the
+      display of the Rich Text toolbar. The default value is 1.
 
     * ``yexpand``: see in common-attributes-yexpand_.
 
@@ -269,8 +282,8 @@ image
 
 Display an image.
 
-    * ``name``: the name of the image. It must be the name of a record of
-      `ir.ui.icon`.
+    * ``name``: the image name or the field name which contains the image name.
+      The image name must be the name of a record of `ir.ui.icon`.
 
     * ``yexpand``: see in common-attributes-yexpand_.
 
@@ -320,8 +333,6 @@ button
 
 Display a button.
 
-    * ``string``: The string that will be displayed inside the button.
-
     * ``name``: The name of the function that will be called. The function must
       have this syntax:
 
@@ -339,7 +350,7 @@ Display a button.
         * ``next``: to go to the next record
         * ``previous``: to go to the previous record
         * ``close``: to close the current tab
-        * ``switch <view type>``: to switch the view to the defined type
+        * ``switch <view type> [<view id>]``: to switch the view
         * ``reload``: to reload the current tab
         * ``reload context``: to reload user context
         * ``reload menu``: to reload menu
@@ -354,6 +365,17 @@ Display a button.
     * ``states``: see in common-attributes-states_.
 
     * ``help``: see in common-attributes-help_.
+
+    * ``keyword``: specify where will the button be displayed in the client
+      toolbar. The valid values are the keywords starting with `form_` from
+      :ref:`Actions <topics-actions>` without the `form_` part.
+
+
+.. warning::
+    The button should be registered on ``ir.model.button`` where the default
+    value of the ``string``, ``confirm`` and ``help`` attributes can be can be
+    defined.
+
 
 notebook
 ^^^^^^^^
@@ -374,7 +396,7 @@ Define a new tab inside a notebook.
     * ``angle``: The angle in degrees between the baseline of the label and the
       horizontal, measured counterclockwise.
 
-    * ``col``: The number of columns for the page view.
+    * ``col``: see in common-attributes-col_.
 
     * ``id``: see in common-attributes-id_.
 
@@ -392,7 +414,12 @@ Create a sub-table in a cell.
 
     * ``rowspan``: The number of rows the group spans in the table.
 
-    * ``col``: The number of columns for the group contains.
+    * ``col``: see in common-attributes-col_.
+
+    * ``expandable``: If this attribute is present the content of the group
+      will be expandable by the user to reveal its content. A value of "1"
+      means that the group will start expanded, a value of "0" means
+      that the group will start unexpanded. There is no default value.
 
     * ``homogeneous``: If True all the tables cells are the same size.
 
@@ -433,7 +460,7 @@ Example
 
 ::
 
-  <form string="Party" col="6">
+  <form col="6">
       <label name="name"/>
       <field name="name" xexpand="1"/>
       <label name="code"/>
@@ -486,9 +513,6 @@ tree
 
 Each tree view must start with this tag.
 
-    * ``string``: The text that will be used as default title for the tab or
-      the window.
-
     * ``on_write``: see form-attributes-on_write_.
 
     * ``editable``: If it is set to ``top`` or ``bottom``, the list becomes
@@ -514,7 +538,9 @@ field
 
     * ``widget``: The widget that must be used instead of the default one.
 
-    * ``tree_invisible``: Boolean to display or not the column.
+    * ``tree_invisible``: A string of :ref:`PYSON statement <topics-pyson>`
+      that will be evaluated as boolean with the context of the view to display
+      or not the column.
 
     * ``icon``: The name of the field that contains the name of the icon to
       display in the column.
@@ -560,10 +586,10 @@ Example
 
 ::
 
-  <tree string="Taxes" sequence="sequence">
+  <tree sequence="sequence">
       <field name="name"/>
       <field name="percentage">
-          <suffix string="%"/>
+          <suffix name="percentage" string="%"/>
       </field>
       <field name="group"/>
       <field name="type"/>
@@ -604,8 +630,6 @@ graph
 Each graph view must start with this tag.
 
     * ``type``: ``vbar``, ``hbar``, ``line``, ``pie``
-
-    * ``string``: the name of the graph.
 
     * ``background``: an hexaecimal value for the color of the
       background.
@@ -699,10 +723,7 @@ board
 
 Each board view must start with this tag.
 
-    * ``string``: The text that will be used as default titla for the atb or
-      the window.
-
-    * ``col``: The number of columns for the view.
+    * ``col``: see in common-attributes-col_.
 
 image
 ^^^^^
@@ -777,8 +798,14 @@ Each calendar view must start with this tag.
 
     * ``dtend``: The name of the field that contains the end date.
 
-    * ``string``: The text that will be used as default title for the tab or
-      the window.
+    * ``mode``: An optional name for the view that will be used first.
+      Available views are: `week` and `month`. The default value is `month`.
+
+    * ``color``: An optional field name that contains the text color for the
+      event. The default value is `black`.
+
+    * ``background_color``: An optional field name that contains the background
+      color for the event. The default value is `lightblue`.
 
 field
 ^^^^^
@@ -792,7 +819,7 @@ Example
 
 ::
 
-  <calendar string="Productions" dtstart="planned_date">
+  <calendar dtstart="planned_date">
       <field name="code"/>
       <field name="product"/>
       <field name="reference"/>

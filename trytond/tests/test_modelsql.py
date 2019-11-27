@@ -4,14 +4,13 @@
 
 import unittest
 import time
-
-from mock import patch, call
+from unittest.mock import patch, call
 
 from trytond import backend
 from trytond.exceptions import UserError, ConcurrencyException
 from trytond.transaction import Transaction
 from trytond.pool import Pool
-from trytond.tests.test_tryton import install_module, with_transaction
+from trytond.tests.test_tryton import activate_module, with_transaction
 
 
 class ModelSQLTestCase(unittest.TestCase):
@@ -19,7 +18,7 @@ class ModelSQLTestCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        install_module('tests')
+        activate_module('tests')
 
     @unittest.skipIf(backend.name() == 'sqlite',
         'SQLite not concerned because tryton don\'t set "NOT NULL"'
@@ -36,10 +35,10 @@ class ModelSQLTestCase(unittest.TestCase):
             'desc': '',
             'integer': 0,
             }
-        for key, value in fields.iteritems():
+        for key, value in fields.items():
             try:
                 Modelsql.create([{key: value}])
-            except UserError, err:
+            except UserError as err:
                 # message must not quote key
                 msg = "'%s' not missing but quoted in error: '%s'" % (key,
                         err.message)
@@ -62,10 +61,11 @@ class ModelSQLTestCase(unittest.TestCase):
         timestamp = ModelsqlTimestamp.read([record.id],
             ['_timestamp'])[0]['_timestamp']
 
-        if backend.name() in ('sqlite', 'mysql'):
+        if backend.name() == 'sqlite':
             # timestamp precision of sqlite is the second
             time.sleep(1)
 
+        transaction.timestamp[str(record)] = timestamp
         ModelsqlTimestamp.write([record], {})
         transaction.commit()
 
@@ -76,6 +76,10 @@ class ModelSQLTestCase(unittest.TestCase):
         transaction.timestamp[str(record)] = timestamp
         self.assertRaises(ConcurrencyException,
             ModelsqlTimestamp.delete, [record])
+
+        transaction.timestamp[str(record)] = None
+        ModelsqlTimestamp.write([record], {})
+        transaction.commit()
 
         transaction.timestamp.pop(str(record), None)
         ModelsqlTimestamp.write([record], {})
@@ -113,6 +117,152 @@ class ModelSQLTestCase(unittest.TestCase):
                     call([records[0], records[2]], 'field', 1),
                     call([records[1]], 'field', 2),
                     ])
+
+    @with_transaction()
+    def test_integrity_error_with_created_record(self):
+        "Test integrity error with created record"
+        pool = Pool()
+        ParentModel = pool.get('test.modelsql.one2many')
+        TargetModel = pool.get('test.modelsql.one2many.target')
+
+        # Create target record without required name
+        # to ensure create_records is filled to prevent raising
+        # foreign_model_missing
+        record = ParentModel(name="test")
+        record.targets = [TargetModel()]
+        with self.assertRaises(UserError) as cm:
+            record.save()
+        err = cm.exception
+        msg = 'The field "%s" on "%s" is required.' % (
+            TargetModel.name.string, TargetModel.__doc__)
+        self.assertEqual(err.message, msg)
+
+    @with_transaction()
+    def test_null_ordering(self):
+        'Test NULL ordering'
+        pool = Pool()
+        NullOrder = pool.get('test.modelsql.null_order')
+
+        NullOrder.create([{
+                    'integer': 1,
+                    }, {
+                    'integer': 3,
+                    }, {
+                    'integer': None,
+                    }])
+        integers = NullOrder.search([], order=[('integer', 'ASC NULLS FIRST')])
+        self.assertListEqual([i.integer for i in integers], [None, 1, 3])
+
+        integers = NullOrder.search(
+            [], order=[('integer', 'DESC NULLS FIRST')])
+        self.assertListEqual([i.integer for i in integers], [None, 3, 1])
+
+        integers = NullOrder.search([], order=[('integer', 'ASC NULLS LAST')])
+        self.assertListEqual([i.integer for i in integers], [1, 3, None])
+
+        integers = NullOrder.search([], order=[('integer', 'DESC NULLS LAST')])
+        self.assertListEqual([i.integer for i in integers], [3, 1, None])
+
+    @with_transaction()
+    def test_delete_translations(self):
+        "Test delete record trigger delete of translations"
+        pool = Pool()
+        Model = pool.get('test.modelsql.translation')
+        Translation = pool.get('ir.translation')
+        record, = Model.create([{'name': "Translation"}])
+
+        with patch.object(Translation, 'delete_ids') as delete_ids:
+            Model.delete([record])
+
+        delete_ids.assert_called_with(
+            'test.modelsql.translation', 'model', [record.id])
+
+    @with_transaction()
+    def test_constraint_check(self):
+        "Test check constraint"
+        pool = Pool()
+        Model = pool.get('test.modelsql.check')
+
+        record, = Model.create([{'value': 50}])
+
+        self.assertTrue(record.id)
+
+    @with_transaction()
+    def test_constraint_check_null(self):
+        "Test check constraint with null"
+        pool = Pool()
+        Model = pool.get('test.modelsql.check')
+
+        record, = Model.create([{'value': None}])
+
+        self.assertTrue(record.id)
+
+    @with_transaction()
+    def test_constraint_check_invalid(self):
+        "Test invalid check constraint"
+        pool = Pool()
+        Model = pool.get('test.modelsql.check')
+
+        with self.assertRaises(UserError):
+            Model.create([{'value': 10}])
+
+    @with_transaction()
+    def test_constraint_unique(self):
+        "Test unique constraint"
+        pool = Pool()
+        Model = pool.get('test.modelsql.unique')
+
+        records = Model.create([{'value': 1}, {'value': 2}])
+
+        self.assertEqual(len(records), 2)
+
+    @with_transaction()
+    def test_constraint_unique_null(self):
+        "Test unique constraint with null"
+        pool = Pool()
+        Model = pool.get('test.modelsql.unique')
+
+        records = Model.create([{'value': None}, {'value': None}])
+
+        self.assertEqual(len(records), 2)
+
+    @with_transaction()
+    def test_constraint_unique_invalid(self):
+        "Test invalid unique constraint"
+        pool = Pool()
+        Model = pool.get('test.modelsql.unique')
+
+        with self.assertRaises(UserError):
+            Model.create([{'value': 42}, {'value': 42}])
+
+    @with_transaction()
+    def test_constraint_exclude(self):
+        "Test exclude constraint"
+        pool = Pool()
+        Model = pool.get('test.modelsql.exclude')
+
+        records = Model.create([{'value': 1}, {'value': 2}])
+
+        self.assertEqual(len(records), 2)
+
+    @with_transaction()
+    def test_constraint_exclude_exclusion(self):
+        "Test exclude constraint exclusion"
+        pool = Pool()
+        Model = pool.get('test.modelsql.exclude')
+
+        records = Model.create([{'value': -1}, {'value': -1}])
+
+        self.assertEqual(len(records), 2)
+
+    @with_transaction()
+    def test_constraint_exclude_invalid(self):
+        "Test invalid exclude constraint"
+        pool = Pool()
+        Model = pool.get('test.modelsql.exclude')
+
+        with self.assertRaises(UserError):
+            Model.create([{'value': 42}, {'value': 42}])
 
 
 def suite():

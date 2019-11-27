@@ -17,7 +17,7 @@ class MultiValueMixin(object):
 
     def multivalue_records(self, field):
         Value = self.multivalue_model(field)
-        for fname, field in self._fields.iteritems():
+        for fname, field in self._fields.items():
             if (field._type == 'one2many'
                     and field.model_name == Value.__name__):
                 return getattr(self, fname)
@@ -25,7 +25,7 @@ class MultiValueMixin(object):
 
     def multivalue_record(self, field, **pattern):
         Value = self.multivalue_model(field)
-        for fname, field in Value._fields.iteritems():
+        for fname, field in Value._fields.items():
             if (field._type == 'many2one'
                     and field.model_name == self.__name__):
                 pattern = pattern.copy()
@@ -35,6 +35,7 @@ class MultiValueMixin(object):
 
     def __values(self, field, pattern, match_none=True):
         Value = self.multivalue_model(field)
+        # Limit the cache to matching records
         return Value.browse((v for v in self.multivalue_records(field)
             if v.match(pattern, match_none=match_none)))
 
@@ -43,7 +44,6 @@ class MultiValueMixin(object):
         pattern = filter_pattern(pattern, Value)
         values = self.__values(name, pattern, match_none=False)
         if not values:
-            Value = self.multivalue_model(name)
             value = Value(**pattern)
             func = getattr(self, 'default_%s' % name, lambda **kw: None)
             setattr(value, name, func(**pattern))
@@ -92,4 +92,4 @@ class ValueMixin(MatchMixin):
 
 
 def filter_pattern(pattern, Value):
-    return {f: v for f, v in pattern.iteritems() if f in Value._fields}
+    return {f: v for f, v in pattern.items() if f in Value._fields}

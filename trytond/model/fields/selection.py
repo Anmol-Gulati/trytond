@@ -4,16 +4,29 @@ import warnings
 
 from sql.conditionals import Case
 
-from ... import backend
 from ...transaction import Transaction
-from .field import Field, SQLType
+from ...tools import is_instance_method
+from .field import Field
+from ...rpc import RPC
 
 
-class Selection(Field):
+class SelectionMixin:
+
+    def translated(self, name=None):
+        "Return a descriptor for the translated value of the field"
+        if name is None:
+            name = self.name
+        if name is None:
+            raise ValueError('Missing name argument')
+        return TranslatedSelection(name)
+
+
+class Selection(Field, SelectionMixin):
     '''
     Define a selection field (``str``).
     '''
     _type = 'selection'
+    _sql_type = 'VARCHAR'
 
     def __init__(self, selection, string='', sort=True,
             selection_change_with=None, translate=True, help='',
@@ -44,11 +57,14 @@ class Selection(Field):
         self.translate_selection = translate
     __init__.__doc__ += Field.__init__.__doc__
 
-    def sql_type(self):
-        db_type = backend.name()
-        if db_type == 'mysql':
-            return SQLType('CHAR', 'VARCHAR(255)')
-        return SQLType('VARCHAR', 'VARCHAR')
+    def set_rpc(self, model):
+        super(Selection, self).set_rpc(model)
+        if not isinstance(self.selection, (list, tuple)):
+            assert hasattr(model, self.selection), \
+                'Missing %s on model %s' % (self.selection, model.__name__)
+            instantiate = 0 if self.selection_change_with else None
+            model.__rpc__.setdefault(
+                self.selection, RPC(instantiate=instantiate))
 
     def convert_order(self, name, tables, Model):
         if getattr(Model, 'order_%s' % name, None):
@@ -58,20 +74,18 @@ class Selection(Field):
         table, _ = tables[None]
         selections = Model.fields_get([name])[name]['selection']
         if not isinstance(selections, (tuple, list)):
-            selections = getattr(Model, selections)()
+            if not is_instance_method(Model, selections):
+                selections = getattr(Model, selections)()
+            else:
+                selections = []
         column = self.sql_column(table)
         whens = []
         for key, value in selections:
             whens.append((column == key, value))
-        return [Case(*whens, else_=column)]
-
-    def translated(self, name=None):
-        "Return a descriptor for the translated value of the field"
-        if name is None:
-            name = self.name
-        if name is None:
-            raise ValueError('Missing name argument')
-        return TranslatedSelection(name)
+        if whens:
+            return [Case(*whens, else_=column)]
+        else:
+            return [column]
 
 
 class TranslatedSelection(object):
@@ -81,14 +95,24 @@ class TranslatedSelection(object):
         self.name = name
 
     def __get__(self, inst, cls):
+        from ..model import Model
         if inst is None:
             return self
         with Transaction().set_context(getattr(inst, '_context', {})):
-            selection = dict(
-                cls.fields_get([self.name])[self.name]['selection'])
+            selection = cls.fields_get([self.name])[self.name]['selection']
+            if not isinstance(selection, (tuple, list)):
+                sel_func = getattr(cls, selection)
+                if not is_instance_method(cls, selection):
+                    selection = sel_func()
+                else:
+                    selection = sel_func(inst)
+            selection = dict(selection)
         value = getattr(inst, self.name)
         # None and '' are equivalent
         if value is None or value == '':
             if value not in selection:
                 value = {None: '', '': None}[value]
+        # Use Model __name__ for Reference field
+        elif isinstance(value, Model):
+            value = value.__name__
         return selection[value]

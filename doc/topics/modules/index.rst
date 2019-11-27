@@ -138,9 +138,19 @@ Here is the list of the tags:
           an ending dot, if the record is defined in an other module.
 
         * ``eval``: Python code to evaluate and use result as value.
+          The following expressions are available:
+
+            * ``time``: The python time_ module
+            * ``version``: The current Tryton version
+            * ``ref``: A function that converts an XML id into a database id.
+            * ``Decimal``: The python Decimal_ object
+            * ``datetime``: The python datetime_ module
 
         * ``pyson``: convert the evaluated value into :ref:`PYSON <ref-pyson>`
           string.
+
+        * ``depends``: set value only if all modules in the comma separated
+          module list value are installed.
 
         .. note::
             Field content is considered as a string. So for fields that require
@@ -171,3 +181,6 @@ Here is the list of the tags:
 
 
 .. _ConfigParser: http://docs.python.org/library/configparser.html
+.. _time: http://docs.python.org/library/time.html
+.. _Decimal: https://docs.python.org/library/decimal.html
+.. _datetime: https://docs.python.org/library/datetime.html

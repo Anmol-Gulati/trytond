@@ -5,15 +5,11 @@ from sql import Cast, Literal
 from sql.functions import Substring, Position
 from sql.conditionals import Coalesce
 
-from .field import Field, size_validate
+from .field import (Field, size_validate, instanciate_values, domain_validate,
+    search_order_validate, context_validate)
 from ...pool import Pool
 from ...tools import grouped_slice
 from ...transaction import Transaction
-
-
-def add_remove_validate(value):
-    if value:
-        assert isinstance(value, list), 'add_remove must be a list'
 
 
 class One2Many(Field):
@@ -23,10 +19,10 @@ class One2Many(Field):
     _type = 'one2many'
 
     def __init__(self, model_name, field, string='', add_remove=None,
-            order=None, datetime_field=None, size=None, help='',
-            required=False, readonly=False, domain=None, states=None,
-            on_change=None, on_change_with=None, depends=None,
-            context=None, loading='lazy'):
+            order=None, datetime_field=None, size=None, search_order=None,
+            search_context=None, help='', required=False, readonly=False,
+            domain=None, filter=None, states=None, on_change=None,
+            on_change_with=None, depends=None, context=None, loading='lazy'):
         '''
         :param model_name: The name of the target model.
         :param field: The name of the field that handle the reverse many2one or
@@ -38,6 +34,9 @@ class One2Many(Field):
             allowing to specify the order of result.
         :param datetime_field: The name of the field that contains the datetime
             value to read the target records.
+        :param search_order: The order to use when searching for records
+        :param search_context: The context to use when searching for a record
+        :param filter: A domain to filter target records.
         '''
         if datetime_field:
             if depends:
@@ -56,6 +55,12 @@ class One2Many(Field):
         self.datetime_field = datetime_field
         self.__size = None
         self.size = size
+        self.__search_order = None
+        self.search_order = search_order
+        self.__search_context = None
+        self.search_context = search_context or {}
+        self.__filter = None
+        self.filter = filter
 
     __init__.__doc__ += Field.__init__.__doc__
 
@@ -63,7 +68,8 @@ class One2Many(Field):
         return self.__add_remove
 
     def _set_add_remove(self, value):
-        add_remove_validate(value)
+        if value is not None:
+            domain_validate(value)
         self.__add_remove = value
 
     add_remove = property(_get_add_remove, _set_add_remove)
@@ -76,6 +82,37 @@ class One2Many(Field):
         self.__size = value
 
     size = property(_get_size, _set_size)
+
+    @property
+    def search_order(self):
+        return self.__search_order
+
+    @search_order.setter
+    def search_order(self, value):
+        search_order_validate(value)
+        self.__search_order = value
+
+    @property
+    def search_context(self):
+        return self.__search_context
+
+    @search_context.setter
+    def search_context(self, value):
+        context_validate(value)
+        self.__search_context = value
+
+    def sql_type(self):
+        return None
+
+    @property
+    def filter(self):
+        return self.__filter
+
+    @filter.setter
+    def filter(self, value):
+        if value is not None:
+            domain_validate(value)
+        self.__filter = value
 
     def get(self, ids, model, name, values=None):
         '''
@@ -95,13 +132,15 @@ class One2Many(Field):
                 clause = [(self.field, 'in', references)]
             else:
                 clause = [(self.field, 'in', list(sub_ids))]
+            if self.filter:
+                clause.append(self.filter)
             targets.append(Relation.search(clause, order=self.order))
         targets = list(chain(*targets))
 
         for target in targets:
             origin_id = getattr(target, self.field).id
             res[origin_id].append(target.id)
-        return dict((key, tuple(value)) for key, value in res.iteritems())
+        return dict((key, tuple(value)) for key, value in res.items())
 
     def set(self, Model, name, ids, values, *args):
         '''
@@ -150,7 +189,7 @@ class One2Many(Field):
             to_delete.extend(Target.browse(target_ids))
 
         def add(ids, target_ids):
-            target_ids = map(int, target_ids)
+            target_ids = list(map(int, target_ids))
             if not target_ids:
                 return
             targets = Target.browse(target_ids)
@@ -160,7 +199,7 @@ class One2Many(Field):
                             }))
 
         def remove(ids, target_ids):
-            target_ids = map(int, target_ids)
+            target_ids = list(map(int, target_ids))
             if not target_ids:
                 return
             for sub_ids in grouped_slice(target_ids):
@@ -173,7 +212,7 @@ class One2Many(Field):
                             }))
 
         def copy(ids, copy_ids, default=None):
-            copy_ids = map(int, copy_ids)
+            copy_ids = list(map(int, copy_ids))
 
             if default is None:
                 default = {}
@@ -199,12 +238,13 @@ class One2Many(Field):
                 action = value[0]
                 args = value[1:]
                 actions[action](ids, *args)
-        if to_create:
-            Target.create(to_create)
-        if to_write:
-            Target.write(*to_write)
+        # Ordered operations to avoid uniqueness/overlapping constraints
         if to_delete:
             Target.delete(to_delete)
+        if to_write:
+            Target.write(*to_write)
+        if to_create:
+            Target.create(to_create)
 
     def get_target(self):
         'Return the target Model'
@@ -212,16 +252,7 @@ class One2Many(Field):
 
     def __set__(self, inst, value):
         Target = self.get_target()
-
-        def instance(data):
-            if isinstance(data, Target):
-                return data
-            elif isinstance(data, dict):
-                return Target(**data)
-            else:
-                return Target(data)
-        value = tuple(instance(x) for x in (value or []))
-        super(One2Many, self).__set__(inst, value)
+        super(One2Many, self).__set__(inst, instanciate_values(Target, value))
 
     def convert_domain(self, domain, tables, Model):
         from ..modelsql import convert_from
@@ -257,13 +288,16 @@ class One2Many(Field):
                     where &= history_where
                 if origin_where:
                     where &= origin_where
+                if self.filter:
+                    query = Target.search(self.filter, order=[], query=True)
+                    where &= origin.in_(query)
                 query = target.select(origin, where=where)
                 expression = ~table.id.in_(query)
                 if operator == '!=':
                     return ~expression
                 return expression
             else:
-                if isinstance(value, basestring):
+                if isinstance(value, str):
                     target_name = 'rec_name'
                 else:
                     target_name = 'id'
@@ -279,6 +313,8 @@ class One2Many(Field):
         rule_domain = Rule.domain_get(Target.__name__, mode='read')
         if rule_domain:
             target_domain = [target_domain, rule_domain]
+        if self.filter:
+            target_domain = [target_domain, self.filter]
         target_tables = {
             None: (target, None),
             }

@@ -24,11 +24,6 @@
   </define>
   <define name="attlist.form" combine="interleave">
     <optional>
-      <attribute name="string" a:defaultValue="Unknown"/>
-    </optional>
-  </define>
-  <define name="attlist.form" combine="interleave">
-    <optional>
       <attribute name="on_write"/>
     </optional>
   </define>
@@ -183,6 +178,7 @@
           <value>monthStart</value>
           <value>monthEnd</value>
           <value>radio</value>
+          <value>pyson</value>
         </choice>
       </attribute>
     </optional>
@@ -459,6 +455,16 @@
       <attribute name="filename"/>
     </optional>
   </define>
+  <define name="attlist.field" combine="interleave">
+    <optional>
+      <attribute name="toolbar" a:defaultValue="0">
+        <choice>
+          <value>0</value>
+          <value>1</value>
+        </choice>
+      </attribute>
+    </optional>
+  </define>
   <define name="image">
     <element name="image">
       <ref name="attlist.image"/>
@@ -627,7 +633,7 @@
   </define>
   <define name="attlist.button" combine="interleave">
     <optional>
-      <attribute name="string" a:defaultValue="Unknown"/>
+      <attribute name="string"/>
     </optional>
   </define>
   <define name="attlist.button" combine="interleave">
@@ -646,6 +652,27 @@
   <define name="attlist.button" combine="interleave">
     <optional>
       <attribute name="states"/>
+    </optional>
+  </define>
+  <define name="attlist.button" combine="interleave">
+    <optional>
+      <attribute name="keyword" a:defaultValue="action">
+        <choice>
+          <value>relate</value>
+          <value>print</value>
+          <value>action</value>
+        </choice>
+      </attribute>
+    </optional>
+  </define>
+  <define name="attlist.button" combine="interleave">
+    <optional>
+      <attribute name="rule" a:defaultValue="0">
+        <choice>
+          <value>0</value>
+          <value>1</value>
+        </choice>
+      </attribute>
     </optional>
   </define>
   <define name="attlist.button" combine="interleave">
@@ -684,6 +711,16 @@
   <define name="attlist.notebook" combine="interleave">
     <optional>
       <attribute name="states"/>
+    </optional>
+  </define>
+  <define name="attlist.notebook" combine="interleave">
+    <optional>
+      <attribute name="width"/>
+    </optional>
+  </define>
+  <define name="attlist.notebook" combine="interleave">
+    <optional>
+      <attribute name="height"/>
     </optional>
   </define>
   <define name="page">
@@ -829,6 +866,16 @@
   <define name="attlist.group" combine="interleave">
     <optional>
       <attribute name="homogeneous" a:defaultValue="0">
+        <choice>
+          <value>0</value>
+          <value>1</value>
+        </choice>
+      </attribute>
+    </optional>
+  </define>
+  <define name="attlist.group" combine="interleave">
+    <optional>
+      <attribute name="expandable">
         <choice>
           <value>0</value>
           <value>1</value>

@@ -1,17 +1,23 @@
 # This file is part of Tryton.  The COPYRIGHT file at the top level of
 # this repository contains the full copyright notices and license terms.
-from collections import namedtuple
 import warnings
 from functools import wraps
 
-from sql import operators, Column, Literal, Select, CombiningQuery, Null
+from sql import (operators, Column, Literal, Select, CombiningQuery, Null,
+    Query, Expression, Cast)
 from sql.conditionals import Coalesce, NullIf
 from sql.operators import Concat
 
+from trytond import backend
 from trytond.pyson import PYSON, PYSONEncoder, Eval
 from trytond.const import OPERATORS
 from trytond.transaction import Transaction
 from trytond.pool import Pool
+from trytond.cache import LRUDictTransaction
+
+from ...rpc import RPC
+
+Database = backend.get('Database')
 
 
 def domain_validate(value):
@@ -19,15 +25,16 @@ def domain_validate(value):
 
     def test_domain(dom):
         for arg in dom:
-            if isinstance(arg, basestring):
+            if isinstance(arg, str):
                 if arg not in ('AND', 'OR'):
                     return False
             elif (isinstance(arg, tuple)
                 or (isinstance(arg, list)
                     and len(arg) > 2
-                    and ((arg[1] in OPERATORS)
+                    and ((isinstance(arg[1], str)
+                                and arg[1] in OPERATORS)
                         or (isinstance(arg[1], PYSON)
-                            and arg[1].types() == set([str]))))):
+                                and arg[1].types() == set([str]))))):
                 pass
             elif isinstance(arg, list):
                 if not test_domain(arg):
@@ -64,6 +71,28 @@ def size_validate(value):
                 'size must return integer'
 
 
+def search_order_validate(value):
+    if value is not None:
+        assert isinstance(value, (list, PYSON)), 'search_order must be PYSON'
+        if hasattr(value, 'types'):
+            assert value.types() == set([list]), 'search_order must be PYSON'
+
+
+def _set_value(record, field):
+    try:
+        field, nested = field.split('.', 1)
+    except ValueError:
+        nested = None
+    if field.startswith('_parent_'):
+        field = field[8:]  # Strip '_parent_'
+    if not hasattr(record, field):
+        setattr(record, field, None)
+    elif nested:
+        parent = getattr(record, field)
+        if parent:
+            _set_value(parent, nested)
+
+
 def depends(*fields, **kwargs):
     methods = kwargs.pop('methods', None)
     assert not kwargs
@@ -81,11 +110,7 @@ def depends(*fields, **kwargs):
         @wraps(func)
         def wrapper(self, *args, **kwargs):
             for field in fields:
-                field = field.split('.')[0]
-                if field.startswith('_parent_'):
-                    field = field[8:]  # Strip '_parent_'
-                if not hasattr(self, field):
-                    setattr(self, field, None)
+                _set_value(self, field)
             return func(self, *args, **kwargs)
         return wrapper
     return decorator
@@ -110,6 +135,44 @@ def get_eval_fields(value):
     return encoder.fields
 
 
+def instanciate_values(Target, value):
+    from ..modelstorage import ModelStorage, cache_size
+    kwargs = {}
+    ids = []
+    if issubclass(Target, ModelStorage):
+        kwargs['_local_cache'] = LRUDictTransaction(cache_size())
+        kwargs['_ids'] = ids
+
+    def instance(data):
+        if isinstance(data, Target):
+            return data
+        elif isinstance(data, dict):
+            if data.get('id', -1) >= 0:
+                values = {}
+                values.update(data)
+                values.update(kwargs)
+                ids.append(data['id'])
+            else:
+                values = data
+            return Target(**values)
+        else:
+            ids.append(data)
+            return Target(data, **kwargs)
+    return tuple(instance(x) for x in (value or []))
+
+
+def on_change_result(record):
+    return record._changed_values
+
+
+def with_inactive_records(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        with Transaction().set_context(active_test=False):
+            return func(*args, **kwargs)
+    return wrapper
+
+
 SQL_OPERATORS = {
     '=': operators.Equal,
     '!=': operators.NotEqual,
@@ -128,6 +191,7 @@ SQL_OPERATORS = {
 
 class Field(object):
     _type = None
+    _sql_type = None
 
     def __init__(self, string='', help='', required=False, readonly=False,
             domain=None, states=None, select=False, on_change=None,
@@ -239,15 +303,26 @@ class Field(object):
             inst._values = {}
         inst._values[self.name] = value
 
-    @staticmethod
-    def sql_format(value):
-        return value
+    def sql_format(self, value):
+        if isinstance(value, (Query, Expression)):
+            return value
+
+        assert self._sql_type is not None
+        database = Transaction().database
+        return database.sql_format(self._sql_type, value)
 
     def sql_type(self):
-        raise NotImplementedError
+        database = Transaction().database
+        return database.sql_type(self._sql_type)
+
+    def sql_cast(self, expression):
+        return Cast(expression, self.sql_type().base)
 
     def sql_column(self, table):
         return Column(table, self.name)
+
+    def _domain_column(self, operator, column):
+        return column
 
     def _domain_value(self, operator, value):
         if isinstance(value, (Select, CombiningQuery)):
@@ -277,6 +352,7 @@ class Field(object):
             return method(domain, tables)
         Operator = SQL_OPERATORS[operator]
         column = self.sql_column(table)
+        column = self._domain_column(operator, column)
         expression = Operator(column, self._domain_value(operator, value))
         if isinstance(expression, operators.In) and not expression.right:
             expression = Literal(False)
@@ -295,14 +371,26 @@ class Field(object):
         else:
             return [self.sql_column(table)]
 
+    def set_rpc(self, model):
+        for attribute, result in (
+                ('on_change', on_change_result),
+                ('on_change_with', None),
+                ):
+            if not getattr(self, attribute):
+                continue
+            func_name = '%s_%s' % (attribute, self.name)
+            assert hasattr(model, func_name), \
+                'Missing %s on model %s' % (func_name, model.__name__)
+            model.__rpc__.setdefault(
+                func_name, RPC(instantiate=0, result=result))
+
 
 class FieldTranslate(Field):
 
     def _get_translation_join(self, Model, name,
-            translation, model, table):
-        language = Transaction().language
+            translation, model, table, from_, language):
         if Model.__name__ == 'ir.model':
-            return table.join(translation, 'LEFT',
+            return from_.join(translation, 'LEFT',
                 condition=(translation.name == Concat(Concat(
                             table.model, ','), name))
                 & (translation.res_id == -1)
@@ -314,7 +402,7 @@ class FieldTranslate(Field):
                 type_ = 'field'
             else:
                 type_ = 'help'
-            return table.join(model, 'LEFT',
+            return from_.join(model, 'LEFT',
                 condition=model.id == table.model).join(
                     translation, 'LEFT',
                     condition=(translation.name == Concat(Concat(
@@ -324,7 +412,7 @@ class FieldTranslate(Field):
                     & (translation.type == type_)
                     & (translation.fuzzy == False))
         else:
-            return table.join(translation, 'LEFT',
+            return from_.join(translation, 'LEFT',
                 condition=(translation.res_id == table.id)
                 & (translation.name == '%s,%s' % (Model.__name__, name))
                 & (translation.lang == language)
@@ -332,6 +420,7 @@ class FieldTranslate(Field):
                 & (translation.fuzzy == False))
 
     def convert_domain(self, domain, tables, Model):
+        from trytond.ir.lang import get_parent_language
         pool = Pool()
         Translation = pool.get('ir.translation')
         IrModel = pool.get('ir.model')
@@ -339,16 +428,21 @@ class FieldTranslate(Field):
             return super(FieldTranslate, self).convert_domain(
                 domain, tables, Model)
 
-        table = Model.__table__()
-        translation = Translation.__table__()
+        table = join = Model.__table__()
         model = IrModel.__table__()
         name, operator, value = domain
-        join = self._get_translation_join(Model, name,
-            translation, model, table)
+        language = Transaction().language
+        column = None
+        while language:
+            translation = Translation.__table__()
+            join = self._get_translation_join(
+                Model, name, translation, model, table, join, language)
+            column = Coalesce(NullIf(column, ''), translation.value)
+            language = get_parent_language(language)
+        column = Coalesce(NullIf(column, ''), self.sql_column(table))
+        column = self._domain_column(operator, column)
         Operator = SQL_OPERATORS[operator]
         assert name == self.name
-        column = Coalesce(NullIf(translation.value, ''),
-            self.sql_column(table))
         where = Operator(column, self._domain_value(operator, value))
         if isinstance(where, operators.In) and not where.right:
             where = Literal(False)
@@ -358,6 +452,7 @@ class FieldTranslate(Field):
         return tables[None][0].id.in_(join.select(table.id, where=where))
 
     def convert_order(self, name, tables, Model):
+        from trytond.ir.lang import get_parent_language
         pool = Pool()
         Translation = pool.get('ir.translation')
         IrModel = pool.get('ir.model')
@@ -367,30 +462,34 @@ class FieldTranslate(Field):
         assert name == self.name
 
         table, _ = tables[None]
-        key = name + '.translation'
-        if key not in tables:
-            translation = Translation.__table__()
-            model = IrModel.__table__()
-            join = self._get_translation_join(Model, name,
-                translation, model, table)
-            if join.left == table:
-                tables[key] = {
-                    None: (join.right, join.condition),
-                    }
-            else:
-                tables[key] = {
-                    None: (join.left.right, join.left.condition),
-                    'translation': {
+
+        join = table
+        language = Transaction().language
+        column = None
+        while language:
+            key = name + '.translation-' + language
+            if key not in tables:
+                translation = Translation.__table__()
+                model = IrModel.__table__()
+                join = self._get_translation_join(
+                    Model, name, translation, model, table, table, language)
+                if join.left == table:
+                    tables[key] = {
                         None: (join.right, join.condition),
-                        },
-                    }
-        else:
-            if 'translation' not in tables[key]:
-                translation, _ = tables[key][None]
+                        }
+                else:
+                    tables[key] = {
+                        None: (join.left.right, join.left.condition),
+                        'translation': {
+                            None: (join.right, join.condition),
+                            },
+                        }
             else:
-                translation, _ = tables[key]['translation'][None]
+                if 'translation' not in tables[key]:
+                    translation, _ = tables[key][None]
+                else:
+                    translation, _ = tables[key]['translation'][None]
+            column = Coalesce(NullIf(column, ''), translation.value)
+            language = get_parent_language(language)
 
-        return [Coalesce(NullIf(translation.value, ''),
-                self.sql_column(table))]
-
-SQLType = namedtuple('SQLType', 'base type')
+        return [Coalesce(column, self.sql_column(table))]

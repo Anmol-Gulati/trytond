@@ -5,32 +5,45 @@ import warnings
 from sql import Cast, Literal, Query, Expression
 from sql.functions import Substring, Position
 
-from .field import Field, SQLType
-from .char import Char
+from .field import (Field, search_order_validate, context_validate,
+    with_inactive_records)
+from .selection import SelectionMixin
 from ...transaction import Transaction
 from ...pool import Pool
-from ... import backend
+from ...rpc import RPC
 
 
-class Reference(Field):
+class Reference(Field, SelectionMixin):
     '''
     Define a reference field (``str``).
     '''
     _type = 'reference'
+    _sql_type = 'VARCHAR'
 
     def __init__(self, string='', selection=None, selection_change_with=None,
-            help='', required=False, readonly=False, domain=None, states=None,
-            select=False, on_change=None, on_change_with=None, depends=None,
-            context=None, loading='lazy'):
+            search_order=None, search_context=None, help='', required=False,
+            readonly=False, domain=None, states=None, select=False,
+            on_change=None, on_change_with=None, depends=None, context=None,
+            loading='lazy', datetime_field=None):
         '''
         :param selection: A list or a function name that returns a list.
             The list must be a list of tuples. First member is an internal name
             of model and the second is the user name of model.
+        :param datetime_field: The name of the field that contains the datetime
+            value to read the target records.
+        :param search_order: The order to use when searching for a record
+        :param search_context: The context to use when searching for a record
         '''
+        if datetime_field:
+            if depends:
+                depends.append(datetime_field)
+            else:
+                depends = [datetime_field]
         super(Reference, self).__init__(string=string, help=help,
             required=required, readonly=readonly, domain=domain, states=states,
             select=select, on_change=on_change, on_change_with=on_change_with,
             depends=depends, context=context, loading=loading)
+        self.datetime_field = datetime_field
         self.selection = selection or None
         self.selection_change_with = set()
         if selection_change_with:
@@ -38,7 +51,39 @@ class Reference(Field):
                 'use the depends decorator',
                 DeprecationWarning, stacklevel=2)
             self.selection_change_with |= set(selection_change_with)
+        self.__search_order = None
+        self.search_order = search_order
+        self.__search_context = None
+        self.search_context = search_context or {}
+
     __init__.__doc__ += Field.__init__.__doc__
+
+    @property
+    def search_order(self):
+        return self.__search_order
+
+    @search_order.setter
+    def search_order(self, value):
+        search_order_validate(value)
+        self.__search_order = value
+
+    @property
+    def search_context(self):
+        return self.__search_context
+
+    @search_context.setter
+    def search_context(self, value):
+        context_validate(value)
+        self.__search_context = value
+
+    def set_rpc(self, model):
+        super(Reference, self).set_rpc(model)
+        if not isinstance(self.selection, (list, tuple)):
+            assert hasattr(model, self.selection), \
+                'Missing %s on model %s' % (self.selection, model.__name__)
+            instantiate = 0 if self.selection_change_with else None
+            model.__rpc__.setdefault(
+                self.selection, RPC(instantiate=instantiate))
 
     def get(self, ids, model, name, values=None):
         '''
@@ -74,7 +119,7 @@ class Reference(Field):
         # Check if reference ids still exist
         with Transaction().set_context(active_test=False), \
                 Transaction().set_context(_check_access=False):
-            for ref_model, (ref_ids, ids) in ref_to_check.iteritems():
+            for ref_model, (ref_ids, ids) in ref_to_check.items():
                 try:
                     pool.get(ref_model)
                 except KeyError:
@@ -84,7 +129,7 @@ class Reference(Field):
                 refs = Ref.search([
                     ('id', 'in', list(ref_ids)),
                     ], order=[])
-                refs = map(str, refs)
+                refs = list(map(str, refs))
                 for i in ids:
                     if res[i] not in refs:
                         res[i] = None
@@ -93,7 +138,7 @@ class Reference(Field):
     def __set__(self, inst, value):
         from ..model import Model
         if not isinstance(value, (Model, type(None))):
-            if isinstance(value, basestring):
+            if isinstance(value, str):
                 target, value = value.split(',')
             else:
                 target, value = value
@@ -104,21 +149,15 @@ class Reference(Field):
                 value = Target(value)
         super(Reference, self).__set__(inst, value)
 
-    @staticmethod
-    def sql_format(value):
-        if not isinstance(value, (basestring, Query, Expression)):
+    def sql_format(self, value):
+        if not isinstance(value, (str, Query, Expression)):
             try:
                 value = '%s,%s' % tuple(value)
             except TypeError:
                 pass
-        return Char.sql_format(value)
+        return super(Reference, self).sql_format(value)
 
-    def sql_type(self):
-        db_type = backend.name()
-        if db_type == 'mysql':
-            return SQLType('CHAR', 'VARCHAR(255)')
-        return SQLType('VARCHAR', 'VARCHAR')
-
+    @with_inactive_records
     def convert_domain(self, domain, tables, Model):
         if '.' not in domain[0]:
             return super(Reference, self).convert_domain(domain, tables, Model)

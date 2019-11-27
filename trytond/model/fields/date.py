@@ -1,11 +1,26 @@
 # This file is part of Tryton.  The COPYRIGHT file at the top level of
 # this repository contains the full copyright notices and license terms.
 import datetime
-from sql import Query, Expression
+from sql.functions import Function
 
 from ... import backend
-from .field import Field, SQLType
+from .field import Field
 from trytond.exceptions import UserValueError
+
+
+class SQLite_Date(Function):
+    __slots__ = ()
+    _function = 'DATE'
+
+
+class SQLite_DateTime(Function):
+    __slots__ = ()
+    _function = 'DATETIME'
+
+
+class SQLite_Time(Function):
+    __slots__ = ()
+    _function = 'TIME'
 
 
 class Date(Field):
@@ -13,14 +28,12 @@ class Date(Field):
     Define a date field (``date``).
     '''
     _type = 'date'
+    _sql_type = 'DATE'
 
-    @staticmethod
-    def sql_format(value):
-        if isinstance(value, (Query, Expression)):
-            return value
+    def sql_format(self, value):
         if value is None:
             return None
-        if isinstance(value, basestring):
+        if isinstance(value, str):
             try:
                 year, month, day = map(int, value.split("-", 2))
             except ValueError:
@@ -49,8 +62,10 @@ class Date(Field):
             )
         return value
 
-    def sql_type(self):
-        return SQLType('DATE', 'DATE')
+    def sql_cast(self, expression):
+        if backend.name() == 'sqlite':
+            return SQLite_Date(expression)
+        return super(Date, self).sql_cast(expression)
 
 
 class DateTime(Field):
@@ -58,6 +73,7 @@ class DateTime(Field):
     Define a datetime field (``datetime``).
     '''
     _type = 'datetime'
+    _sql_type = 'DATETIME'
 
     def __init__(self, string='', format='%H:%M:%S', help='', required=False,
             readonly=False, domain=None, states=None, select=False,
@@ -74,13 +90,10 @@ class DateTime(Field):
 
     __init__.__doc__ += Field.__init__.__doc__
 
-    @staticmethod
-    def sql_format(value):
-        if isinstance(value, (Query, Expression)):
-            return value
+    def sql_format(self, value):
         if not value:
             return None
-        if isinstance(value, basestring):
+        if isinstance(value, str):
             if 'T' in value:
                 datepart, timepart = value.split("T")
             else:
@@ -95,13 +108,10 @@ class DateTime(Field):
         assert(isinstance(value, datetime.datetime))
         return value.replace(microsecond=0)
 
-    def sql_type(self):
-        db_type = backend.name()
-        if db_type == 'sqlite':
-            return SQLType('TIMESTAMP', 'TIMESTAMP')
-        elif db_type == 'mysql':
-            return SQLType('TIMESTAMP', 'TIMESTAMP NULL')
-        return SQLType('TIMESTAMP', 'TIMESTAMP(0)')
+    def sql_cast(self, expression):
+        if backend.name() == 'sqlite':
+            return SQLite_DateTime(expression)
+        return super(DateTime, self).sql_cast(expression)
 
 
 class Timestamp(Field):
@@ -109,14 +119,13 @@ class Timestamp(Field):
     Define a timestamp field (``datetime``).
     '''
     _type = 'timestamp'
+    _sql_type = 'TIMESTAMP'
+    format = '%H:%M:%S.%f'
 
-    @staticmethod
-    def sql_format(value):
-        if isinstance(value, (Query, Expression)):
-            return value
+    def sql_format(self, value):
         if value is None:
             return None
-        if isinstance(value, basestring):
+        if isinstance(value, str):
             datepart, timepart = value.split(" ")
             year, month, day = map(int, datepart.split("-", 2))
             timepart_full = timepart.split(".", 1)
@@ -135,28 +144,18 @@ class Timestamp(Field):
         assert(isinstance(value, datetime.datetime))
         return value
 
-    def sql_type(self):
-        db_type = backend.name()
-        if db_type == 'sqlite':
-            return SQLType('TIMESTAMP', 'TIMESTAMP')
-        elif db_type == 'mysql':
-            return SQLType('TIMESTAMP', 'TIMESTAMP NULL')
-        return SQLType('TIMESTAMP', 'TIMESTAMP(6)')
-
 
 class Time(DateTime):
     '''
     Define a time field (``time``).
     '''
     _type = 'time'
+    _sql_type = 'TIME'
 
-    @staticmethod
-    def sql_format(value):
-        if isinstance(value, (Query, Expression)):
-            return value
+    def sql_format(self, value):
         if value is None:
             return None
-        if isinstance(value, basestring):
+        if isinstance(value, str):
             hours, minutes, seconds = map(int, value.split(":"))
             try:
                 return datetime.time(hours, minutes, seconds)
@@ -166,8 +165,10 @@ class Time(DateTime):
         assert(isinstance(value, datetime.time))
         return value.replace(microsecond=0)
 
-    def sql_type(self):
-        return SQLType('TIME', 'TIME')
+    def sql_cast(self, expression):
+        if backend.name() == 'sqlite':
+            return SQLite_Time(expression)
+        return super(Time, self).sql_cast(expression)
 
 
 class TimeDelta(Field):
@@ -175,6 +176,7 @@ class TimeDelta(Field):
     Define a timedelta field (``timedelta``).
     '''
     _type = 'timedelta'
+    _sql_type = 'INTERVAL'
 
     def __init__(self, string='', converter=None, help='', required=False,
             readonly=False, domain=None, states=None, select=False,
@@ -190,23 +192,13 @@ class TimeDelta(Field):
             depends=depends, context=context, loading=loading)
         self.converter = converter
 
-    @staticmethod
-    def sql_format(value):
-        if isinstance(value, (Query, Expression)):
-            return value
+    def sql_format(self, value):
         if value is None:
             return None
-        assert(isinstance(value, datetime.timedelta))
-        db_type = backend.name()
-        if db_type == 'mysql':
-            return value.total_seconds()
-        return value
-
-    def sql_type(self):
-        db_type = backend.name()
-        if db_type == 'mysql':
-            return SQLType('DOUBLE', 'DOUBLE(255, 6)')
-        return SQLType('INTERVAL', 'INTERVAL')
+        if not isinstance(value, datetime.timedelta):
+            raise ValueError("invalid type '%s' for %s"
+                % (type(value), type(self)))
+        return super(TimeDelta, self).sql_format(value)
 
     @classmethod
     def get(cls, ids, model, name, values=None):
