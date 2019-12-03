@@ -151,17 +151,15 @@ class Queue(ModelSQL):
             instances = self.data['instances']
             # Ensure record ids still exist
             if isinstance(instances, int):
-                with transaction.set_context(active_test=False):
-                    if Model.search([('id', '=', instances)]):
-                        instances = Model(instances)
-                    else:
-                        instances = None
+                if Model.search([('id', '=', instances)]):
+                    instances = Model(instances)
+                else:
+                    instances = None
             else:
                 ids = set()
-                with transaction.set_context(active_test=False):
-                    for sub_ids in grouped_slice(instances):
-                        records = Model.search([('id', 'in', list(sub_ids))])
-                        ids.update(map(int, records))
+                for sub_ids in grouped_slice(instances):
+                    records = Model.search([('id', 'in', list(sub_ids))])
+                    ids.update(map(int, records))
                 if ids:
                     instances = Model.browse(
                         [i for i in instances if i in ids])
