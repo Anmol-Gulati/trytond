@@ -701,20 +701,18 @@ class ModelSQL(ModelStorage):
         # construct a clause for the rules :
         domain = Rule.domain_get(cls.__name__, mode='read')
 
-        fields_related = {}
+        fields_related = defaultdict(list)
         datetime_fields = []
         for field_name in fields_names:
             if field_name == '_timestamp':
                 continue
             if '.' in field_name:
-                field, field_related = field_name.split('.', 1)
-                fields_related.setdefault(field, [])
-                fields_related[field].append(field_related)
-            else:
-                try:
-                    field = cls._fields[field_name]
-                except KeyError:
-                    raise FieldNameError(field_name)
+                field_name, field_related = field_name.split('.', 1)
+                fields_related[field_name].append(field_related)
+            try:
+                field = cls._fields[field_name]
+            except KeyError:
+                raise FieldNameError(field_name)
             if hasattr(field, 'datetime_field') and field.datetime_field:
                 datetime_fields.append(field.datetime_field)
 
