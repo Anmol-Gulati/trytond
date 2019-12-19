@@ -724,10 +724,10 @@ class ModelStorage(Model):
     def get_notes(self, name):
         Note = Pool().get('ir.note')
 
-        return map(int, Note.search([
+        return [note.id for note in Note.search([
             ('is_public', '=', name == 'public_notes'),
             ('resource', '=', '%s,%s' % (self.__name__, self.id))
-        ]))
+        ])]
 
     def get_messages(self):
         Activity = Pool().get('ir.activity')
