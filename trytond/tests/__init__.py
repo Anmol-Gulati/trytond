@@ -18,6 +18,7 @@ from .wizard import *
 from .workflow import *
 from .history import *
 from .field_context import *
+from .rpc import *
 from . import model
 from . import modelstorage
 from . import modelsql
@@ -55,6 +56,7 @@ def register():
         ModelViewRPC,
         ModelViewEmptyPage,
         ModelViewCircularDepends,
+        ModelRPC,
         MPTT,
         ImportDataBoolean,
         ImportDataInteger,
