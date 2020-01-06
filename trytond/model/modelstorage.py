@@ -90,8 +90,12 @@ class ModelStorage(Model):
                         instantiate=slice(0, None, 2)),
                     'delete': RPC(readonly=False, instantiate=0),
                     'duplicate': RPC(readonly=False, instantiate=0),
-                    'search': RPC(result=lambda r: map(int, r)),
-                    'full_text_search': RPC(result=lambda r: map(int, r)),
+                    'search': RPC(
+                        result=lambda r: [record.id for record in r]
+                    ),
+                    'full_text_search': RPC(
+                        result=lambda r: [record.id for record in r]
+                    ),
                     'copy': RPC(readonly=False, instantiate=0, unique=False,
                         result=lambda r: list(map(int, r))),
                     'search': RPC(result=lambda r: list(map(int, r))),
