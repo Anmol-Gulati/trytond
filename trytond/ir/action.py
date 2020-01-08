@@ -232,9 +232,9 @@ class ActionKeyword(ModelSQL, ModelView):
             for value in Action.get_action_values(type_, action_ids):
                 value['keyword'] = keyword
                 keywords.append(value)
-        keywords.sort(key=lambda k: map(
-            lambda a: a.action.id, action_keywords
-        ).index(k['id']))
+        keywords.sort(key=lambda k: [
+            a.action.id for a in action_keywords
+        ].index(k['id']))
         cls._get_keyword_cache.set(key, keywords)
         return keywords
 
