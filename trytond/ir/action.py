@@ -1239,10 +1239,57 @@ class ActionWizard(ActionMixin, ModelSQL, ModelView):
     model = fields.Char('Model')
     email = fields.Char('Email')
     window = fields.Boolean('Window', help='Run wizard in a new window')
+    context = fields.Char('Context Value')
 
     @staticmethod
     def default_type():
         return 'ir.action.wizard'
+
+    @classmethod
+    def __setup__(cls):
+        super(ActionWizard, cls).__setup__()
+        cls._error_messages.update({
+            'invalid_context': (
+                'Invalid context "%(context)s" on wizards "%(wizard)s".'
+            ),
+        })
+
+    @classmethod
+    def validate(cls, wizards):
+        super(ActionWizard, cls).validate(wizards)
+        cls.check_context(wizards)
+
+    @classmethod
+    def check_context(cls, wizards):
+        "Check context"
+        for wizard in wizards:
+            if wizard.context:
+                try:
+                    value = PYSONDecoder().decode(wizard.context)
+                except Exception:
+                    cls.raise_user_error('invalid_context', {
+                        'context': wizard.context,
+                        'wizard': wizard.name,
+                    })
+                if isinstance(value, PYSON):
+                    if not value.types() == set([dict]):
+                        cls.raise_user_error('invalid_context', {
+                            'context': wizard.context,
+                            'wizard': wizard.name,
+                        })
+                elif not isinstance(value, dict):
+                    cls.raise_user_error('invalid_context', {
+                        'context': wizard.context,
+                        'wizard': wizard.name,
+                    })
+                else:
+                    try:
+                        fields.context_validate(value)
+                    except Exception:
+                        cls.raise_user_error('invalid_context', {
+                            'context': wizard.context,
+                            'wizard': wizard.name,
+                        })
 
 
 class ActionURL(ActionMixin, ModelSQL, ModelView):
