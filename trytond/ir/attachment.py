@@ -32,24 +32,25 @@ class Attachment(ResourceMixin, ModelSQL, ModelView):
     "Attachment"
     __name__ = 'ir.attachment'
     name = fields.Char('Name', required=True)
-    type = fields.Selection([
+    kind = fields.Selection([
         ('data', 'Data'),
         ('link', 'Link'),
-        ], 'Type', required=True)
+        ], 'Kind', required=True)
     description = fields.Text('Description')
     summary = fields.Function(fields.Char('Summary'), 'on_change_with_summary')
     link = fields.Char('Link', states={
-            'invisible': Eval('type') != 'link',
-            }, depends=['type'])
+            'invisible': Eval('kind') != 'link',
+            }, depends=['kind'])
     data = fields.Binary('Data', filename='name',
         file_id=file_id, store_prefix=store_prefix,
         states={
-            'invisible': Eval('type') != 'data',
-            }, depends=['type'])
+            'invisible': Eval('kind') != 'data',
+            }, depends=['kind'])
     file_id = fields.Char('File ID', readonly=True)
     data_size = fields.Function(fields.Integer('Data size', states={
-                'invisible': Eval('type') != 'data',
-                }, depends=['type']), 'get_size')
+                'invisible': Eval('kind') != 'data',
+                }, depends=['kind']), 'get_size')
+
 
     @classmethod
     def __setup__(cls):
@@ -59,10 +60,12 @@ class Attachment(ResourceMixin, ModelSQL, ModelView):
     @classmethod
     def __register__(cls, module_name):
         cursor = Transaction().connection.cursor()
+        table = cls.__table_handler__(module_name)
+        if not table.column_exist('kind'):
+            table.column_rename('type', 'kind')
 
         super(Attachment, cls).__register__(module_name)
 
-        table = cls.__table_handler__(module_name)
         attachment = cls.__table__()
 
         # Migration from 4.0: merge digest and collision into file_id
@@ -85,7 +88,7 @@ class Attachment(ResourceMixin, ModelSQL, ModelView):
         table.drop_constraint('resource_name')
 
     @staticmethod
-    def default_type():
+    def default_kind():
         return 'data'
 
     def get_size(self, name):

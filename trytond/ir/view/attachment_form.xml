@@ -12,8 +12,8 @@ this repository contains the full copyright notices and license terms. -->
                 <field name="name"/>
             </group>
         </group>
-        <label name="type"/>
-        <field name="type"/>
+        <label name="kind"/>
+        <field name="kind"/>
         <label name="link"/>
         <field name="link" widget="url"/>
     </group>

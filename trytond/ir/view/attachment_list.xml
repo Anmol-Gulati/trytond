@@ -9,7 +9,7 @@ this repository contains the full copyright notices and license terms. -->
     <field name="last_modification" widget="date"/>
     <field name="last_modification" widget="time"
         string="Last Modification Time"/>
-    <field name="type"/>
+    <field name="kind"/>
     <field name="data"/>
     <field name="link" widget="url"/>
 </tree>
