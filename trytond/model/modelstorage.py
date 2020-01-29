@@ -142,7 +142,7 @@ class ModelStorage(Model):
             fieldnames = set(fieldnames)
             to_change = set()
             later = set()
-            for fname, definition in model_fields.iteritems():
+            for fname, definition in model_fields.items():
                 on_change_with = definition.on_change_with
                 if not on_change_with:
                     continue
@@ -173,7 +173,7 @@ class ModelStorage(Model):
             _trigger_on_change(record, default_data.keys())
 
             updated_values = {}
-            for fname, fvalue in values.iteritems():
+            for fname, fvalue in values.items():
                 _field = model_fields.get(fname)
                 if not _field:
                     continue
@@ -196,7 +196,7 @@ class ModelStorage(Model):
             _trigger_on_change(record, updated_values.keys())
             # XXX: Override field values provided in data, as somefields may be
             # changed by onchange.
-            for fname, fvalue in updated_values.iteritems():
+            for fname, fvalue in updated_values.items():
                 if fvalue:
                     setattr(record, fname, fvalue)
             records.append(record)
