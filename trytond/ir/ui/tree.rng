@@ -313,6 +313,11 @@
   </define>
   <define name="attlist.bulk-action-button" combine="interleave">
     <optional>
+      <attribute name="help"/>
+    </optional>
+  </define>
+  <define name="attlist.bulk-action-button" combine="interleave">
+    <optional>
       <attribute name="string" a:defaultValue="Unknown"/>
     </optional>
   </define>
