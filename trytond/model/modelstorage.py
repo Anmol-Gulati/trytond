@@ -913,7 +913,7 @@ class ModelStorage(Model):
             data += cls.__export_row(record, fields_names)
 
         if Transaction().context.get('return_link'):
-            with tempfile.NamedTemporaryFile(suffix='.csv') as data_file:
+            with tempfile.NamedTemporaryFile(suffix='.csv', mode='w+') as data_file:
                 fields_names = ['/'.join(fields) for fields in fields_names]
                 writer = csv.writer(data_file)
                 writer.writerow(fields_names)
