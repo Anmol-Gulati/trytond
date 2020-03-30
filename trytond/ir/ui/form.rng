@@ -305,6 +305,11 @@
   </define>
   <define name="attlist.field" combine="interleave">
     <optional>
+      <attribute name="editable_tree_view_id"/>
+    </optional>
+  </define>
+  <define name="attlist.field" combine="interleave">
+    <optional>
       <attribute name="product"/>
     </optional>
   </define>

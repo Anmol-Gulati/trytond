@@ -577,15 +577,17 @@ class ModelView(Model):
                         view_ids.append(ModelData.get_id(*view_id.split('.')))
                 element.attrib['tab-view-ids'] = ','.join(map(str, view_ids))
 
-        def set_quick_add_view_id(element):
+        def set_custom_view_ids(element):
             "Fulfil customization for x2m quick add form"
-            if element.get('quick_add_view_id'):
-                form_view_id = element.get('quick_add_view_id')
+            for attrib in ('editable_tree_view_id', 'quick_add_view_id'):
+                if not element.get(attrib):
+                    continue
+                form_view_id = element.get(attrib)
                 try:
                     form_view_id = int(form_view_id)
                 except ValueError:
                     form_view_id = ModelData.get_id(*form_view_id.split('.'))
-                element.attrib['quick_add_view_id'] = str(form_view_id)
+                element.attrib[attrib] = str(form_view_id)
 
         def get_relation(field):
             if hasattr(field, 'model_name'):
@@ -624,7 +626,7 @@ class ModelView(Model):
                 if not fname:
                     continue
                 view_ids = set_view_ids(element)
-                set_quick_add_view_id(element)
+                set_custom_view_ids(element)
                 if type != 'form':
                     continue
                 field = cls._fields[fname]
