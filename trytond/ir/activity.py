@@ -16,8 +16,7 @@ class Activity(ModelSQL, ModelView):
     __name__ = 'ir.activity'
 
     type = fields.Char('Type', select=True)
-    object_record = fields.Reference(
-        'Object Record', selection='get_models', select=True)
+    object_record = fields.Reference('Object Record', selection='get_models')
     target_record = fields.Reference(
         'Target Record', selection='get_models', select=True)
     actor = fields.Function(fields.JSON('Actor'), getter='get_actor')
