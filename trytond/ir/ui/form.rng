@@ -180,6 +180,7 @@
           <value>monthEnd</value>
           <value>radio</value>
           <value>pyson</value>
+          <value>blurb</value>
         </choice>
       </attribute>
     </optional>
