@@ -18,6 +18,7 @@
           <ref name="card"/>
           <ref name="renderhtml"/>
           <ref name="container"/>
+          <ref name="title"/>
         </choice>
       </zeroOrMore>
     </element>
@@ -743,6 +744,7 @@
           <ref name="group"/>
           <ref name="hpaned"/>
           <ref name="vpaned"/>
+          <ref name="title"/>
         </choice>
       </zeroOrMore>
     </element>
@@ -793,6 +795,7 @@
           <ref name="group"/>
           <ref name="hpaned"/>
           <ref name="vpaned"/>
+          <ref name="title"/>
         </choice>
       </zeroOrMore>
     </element>
@@ -932,6 +935,7 @@
           <ref name="group"/>
           <ref name="hpaned"/>
           <ref name="vpaned"/>
+          <ref name="title"/>
         </choice>
       </zeroOrMore>
     </element>
@@ -970,6 +974,7 @@
           <ref name="child"/>
           <ref name="card"/>
           <ref name="container"/>
+          <ref name="title"/>
         </choice>
       </zeroOrMore>
     </element>
@@ -1031,6 +1036,7 @@
           <ref name="metric"/>
           <ref name="creditcard"/>
           <ref name="chart"/>
+          <ref name="title"/>
         </choice>
       </zeroOrMore>
     </element>
@@ -1108,6 +1114,7 @@
           <ref name="vpaned"/>
           <ref name="card"/>
           <ref name="container"/>
+          <ref name="title"/>
         </choice>
       </zeroOrMore>
     </element>
