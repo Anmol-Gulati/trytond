@@ -33,6 +33,7 @@ def register():
         Sequence,
         SequenceStrict,
         ModuleConfigWizardItem,
+        ModelRPCGroup,
         module='res', type_='model')
     Pool.register(
         UserConfig,

@@ -8,7 +8,7 @@ __all__ = [
     'ModelButtonRule', 'ModelButtonClick',
     'RuleGroupGroup', 'Lang', 'SequenceType',
     'SequenceTypeGroup', 'Sequence', 'SequenceStrict',
-    'ModuleConfigWizardItem',
+    'ModuleConfigWizardItem', 'ModelRPCGroup',
     ]
 
 
@@ -138,6 +138,42 @@ class RuleGroupGroup(ModelSQL):
             ondelete='CASCADE', select=True, required=True)
     group = fields.Many2One('res.group', 'Group', ondelete='CASCADE',
             select=True, required=True)
+
+
+class ModelRPCGroup(ModelSQL):
+    "Model RPC - Group"
+    __name__ = 'ir.model.rpc-res.group'
+    rpc = fields.Many2One('ir.model.rpc', 'rpc',
+        ondelete='CASCADE', select=True, required=True)
+    group = fields.Many2One('res.group', 'Group', ondelete='CASCADE',
+        select=True, required=True)
+    active = fields.Boolean('Active', select=True)
+
+    @staticmethod
+    def default_active():
+        return True
+
+    @classmethod
+    def create(cls, vlist):
+        pool = Pool()
+        result = super(ModelRPCGroup, cls).create(vlist)
+        # Restart the cache for get_groups
+        pool.get('ir.model.rpc')._groups_cache.clear()
+        return result
+
+    @classmethod
+    def write(cls, records, values, *args):
+        pool = Pool()
+        super(ModelRPCGroup, cls).write(records, values, *args)
+        # Restart the cache for get_groups
+        pool.get('ir.model.rpc')._groups_cache.clear()
+
+    @classmethod
+    def delete(cls, records):
+        pool = Pool()
+        super(ModelRPCGroup, cls).delete(records)
+        # Restart the cache for get_groups
+        pool.get('ir.model.rpc')._groups_cache.clear()
 
 
 class Lang(metaclass=PoolMeta):
