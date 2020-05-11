@@ -1215,6 +1215,34 @@
       <attribute name="method" />
     </optional>
   </define>
+
+  <define name="title">
+    <element name="title">
+      <ref name="attlist.title"/>
+    </element>
+  </define>
+  <define name="attlist.title" combine="interleave">
+    <optional>
+      <attribute name="name" />
+    </optional>
+  </define>
+  <define name="attlist.title" combine="interleave">
+    <optional>
+      <attribute name="string" />
+    </optional>
+  </define>
+  <define name="attlist.title" combine="interleave">
+    <optional>
+      <attribute name="size" a:defaultValue="medium">
+        <choice>
+          <value>small</value>
+          <value>medium</value>
+          <value>large</value>
+        </choice>
+      </attribute>
+    </optional>
+  </define>
+
   <start>
     <choice>
       <ref name="data"/>
