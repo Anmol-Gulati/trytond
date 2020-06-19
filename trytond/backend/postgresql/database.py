@@ -42,6 +42,9 @@ __all__ = ['Database', 'DatabaseIntegrityError', 'DatabaseOperationalError']
 
 logger = logging.getLogger(__name__)
 
+if os.environ.get('FULFIL_SQL_LOGS'):
+    logger.setLevel(logging.DEBUG)
+
 os.environ['PGTZ'] = os.environ.get('TZ', '')
 _timeout = config.getint('database', 'timeout')
 _minconn = config.getint('database', 'minconn', default=1)
@@ -62,9 +65,18 @@ def replace_special_values(s, **mapping):
 
 class LoggingCursor(cursor):
     def execute(self, sql, args=None):
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(self.mogrify(sql, args))
-        cursor.execute(self, sql, args)
+        if not logger.isEnabledFor(logging.DEBUG):
+            return cursor.execute(self, sql, args)
+
+        logger.debug(self.mogrify(sql, args))
+        start = time.time()
+        try:
+            cursor.execute(self, sql, args)
+        except Exception as exc:
+            logger.error("%s: %s" % (exc.__class__.__name__, exc))
+            raise
+        delta = (time.time() - start) * 1000
+        logger.debug("Wall time: {.2f} ms".format(delta))
 
 
 class Unaccent(Function):
