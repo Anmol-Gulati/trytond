@@ -922,25 +922,10 @@ class ModelStorage(Model):
         The list of values follows fields_names.
         Relational fields are defined with '/' at any depth.
         '''
-        pool = Pool()
-        ModelAccess = pool.get('ir.model.access')
-        ModelAccess.check(cls.__name__, mode='export')
-
         fields_names = [x.split('/') for x in fields_names]
         data = []
         for record in records:
             data += cls.__export_row(record, fields_names)
-
-        if Transaction().context.get('return_link'):
-            with tempfile.NamedTemporaryFile(suffix='.csv', mode='w+') as data_file:
-                fields_names = ['/'.join(fields) for fields in fields_names]
-                writer = csv.writer(data_file)
-                writer.writerow(fields_names)
-                writer.writerows(data)
-
-                data_file.seek(0)
-                return put_file(data_file.name)
-
         return data
 
     @classmethod
