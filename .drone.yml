@@ -1,51 +1,45 @@
-clone:
-    hg:
-        image: plugins/hg
-
-pipeline:
-    tox:
-        image: ${IMAGE}
-        environment:
-            - CFLAGS=-O0
-            - DB_CACHE=/cache
-            - TOX_TESTENV_PASSENV=CFLAGS DB_CACHE
-            - POSTGRESQL_URI=postgresql://postgres@postgresql:5432/
-        commands:
-            - pip install tox
-            - tox -e "${TOXENV}-${DATABASE}"
-        volumes:
-            - cache:/root/.cache
+kind: pipeline
+type: kubernetes
+name: default
 
 services:
-    postgresql:
-        image: postgres
-        when:
-            matrix:
-                DATABASE: postgresql
+- name: postgres
+  image: postgres:latest
+  environment:
+    POSTGRES_HOST_AUTH_METHOD: trust
+    POSTGRES_USER: root
+    POSTGRES_DB: root
+  resources:
+    requests:
+      cpu: 2000
+      memory: 2Gi    
+  ports:
+  - name: postgres
+    port: 5432
 
-matrix:
-    include:
-        - IMAGE: python:3.4
-          TOXENV: py34
-          DATABASE: sqlite
-        - IMAGE: python:3.4
-          TOXENV: py34
-          DATABASE: postgresql
-        - IMAGE: python:3.5
-          TOXENV: py35
-          DATABASE: sqlite
-        - IMAGE: python:3.5
-          TOXENV: py35
-          DATABASE: postgresql
-        - IMAGE: python:3.6
-          TOXENV: py36
-          DATABASE: sqlite
-        - IMAGE: python:3.6
-          TOXENV: py36
-          DATABASE: postgresql
-        - IMAGE: python:3.7
-          TOXENV: py37
-          DATABASE: sqlite
-        - IMAGE: python:3.7
-          TOXENV: py37
-          DATABASE: postgresql
+- name: redis
+  image: redis:3.0
+  ports:
+  - name: redis
+    port: 6379
+  resources:
+    requests:
+      cpu: 50
+      memory: 10MiB    
+
+steps:
+- name: test
+  image: python:2.7.18-stretch
+  commands:
+    - pip install tox
+    - tox -e py27-postgresql
+  resources:
+    requests:
+      cpu: 2000
+      memory: 2Gi      
+  environment:
+    PG_HOST: postgres
+    PG_USER: root
+    POSTGRESQL_URI: postgresql://root@postgres:5432/
+    REDIS_HOST: redis
+    REDIS_PORT: "6379"
