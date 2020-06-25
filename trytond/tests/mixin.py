@@ -4,15 +4,15 @@ from trytond.model import DeactivableMixin, ModelSQL, ModelView
 from trytond.pool import Pool
 
 
-class TestMixin:
+class TestMixin(object):
     pass
 
 
-class TestSecondMixin:
+class TestSecondMixin(object):
     pass
 
 
-class NotMixin:
+class NotMixin(object):
     pass
 
 
