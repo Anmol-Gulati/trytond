@@ -725,13 +725,32 @@ class ModelStorage(Model):
             return []
         return [(rec_name,) + tuple(clause[1:])]
 
-    def get_notes(self, name):
-        Note = Pool().get('ir.note')
+    @classmethod
+    def get_notes(cls, records, name):
+        pool = Pool()
+        Note = pool.get('ir.note')
 
-        return [note.id for note in Note.search([
-            ('is_public', '=', name == 'public_notes'),
-            ('resource', '=', '%s,%s' % (self.__name__, self.id))
-        ])]
+        cursor = Transaction().connection.cursor()
+
+        res = {int(record): [] for record in records}
+
+        query = """
+        SELECT
+            SPLIT_PART(resource, ',', 2)::INT AS record_id,
+            ARRAY_AGG(id) AS notes_ids
+        FROM ir_note
+        WHERE
+            is_public = %s
+            AND resource = ANY(%s)
+        GROUP BY record_id
+        """
+
+        resources = [str(record) for record in records]
+        is_public = name == 'public_notes'
+        cursor.execute(query, (is_public, resources))
+        for record_id, note_ids in cursor.fetchall():
+            res[record_id] = note_ids
+        return res
 
     def get_messages(self):
         Activity = Pool().get('ir.activity')

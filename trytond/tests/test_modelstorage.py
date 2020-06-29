@@ -281,6 +281,33 @@ class ModelStorageTestCase(unittest.TestCase):
 
         self.assertTrue(result)
 
+    @with_transaction(user=0)
+    def test_notes(self):
+        """Test notes function field"""
+        pool = Pool()
+        ModelStorage = pool.get('test.modelstorage')
+        Note = pool.get('ir.note')
+
+        foo, = ModelStorage.create([{'name': 'foo'}])
+
+        assert len(foo.private_notes) == 0
+        assert len(foo.public_notes) == 0
+
+        Note.create([
+            {
+                'message': 'Public note',
+                'is_public': True,
+                'resource': str(foo),
+            },
+            {
+                'message': 'Private note',
+                'is_public': False,
+                'resource': str(foo),
+            }
+        ])
+
+        assert len(foo.private_notes) == 1
+        assert len(foo.public_notes) == 1
 
 def suite():
     return unittest.TestLoader().loadTestsFromTestCase(ModelStorageTestCase)
