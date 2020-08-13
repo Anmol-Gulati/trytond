@@ -181,6 +181,7 @@
           <value>radio</value>
           <value>pyson</value>
           <value>blurb</value>
+          <value>datagrid</value>
         </choice>
       </attribute>
     </optional>
@@ -1170,6 +1171,11 @@
   <define name="attlist.metric" combine="interleave">
     <optional>
       <attribute name="data-currency-symbol" />
+    </optional>
+  </define>
+  <define name="attlist.metric" combine="interleave">
+    <optional>
+      <attribute name="action" />
     </optional>
   </define>
 
