@@ -76,7 +76,7 @@ class LoggingCursor(cursor):
             logger.error("%s: %s" % (exc.__class__.__name__, exc))
             raise
         delta = (time.time() - start) * 1000
-        logger.debug("Wall time: {.2f} ms".format(delta))
+        logger.debug("Wall time: {:.2f} ms".format(delta))
 
 
 class Unaccent(Function):
