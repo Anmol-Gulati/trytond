@@ -1,0 +1,21 @@
+version: 2
+jobs:
+  build:
+    working_directory: ~/trytond
+    docker:
+      - image: circleci/python:3.7.1-stretch-node-browsers
+        environment:
+          - PG_HOST=localhost
+          - PG_USER=root
+          - POSTGRESQL_URI=postgresql://root@localhost:5432/
+      - image: circleci/postgres:12.1-postgis-ram
+        environment:
+          - POSTGRES_USER=root
+    steps:
+      - checkout
+      - run:
+          command: |
+            sudo pip install tox
+      - run:
+          command: |
+            tox -e py37-postgresql

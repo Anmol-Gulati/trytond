@@ -2,9 +2,7 @@
 # this repository contains the full copyright notices and license terms.
 import copy
 
-from trytond.pool import Pool
 from trytond.transaction import Transaction
-from trytond.exceptions import UserError
 
 __all__ = ['RPC']
 
@@ -37,24 +35,7 @@ class RPC(object):
         self.fresh_session = fresh_session
         self.unique = unique
 
-    def convert(self, obj, method, *args, **kwargs):
-        pool = Pool()
-        User = pool.get('res.user')
-        ModelRpc = pool.get('ir.model.rpc')
-
-        transaction = Transaction()
-        if (transaction.user != 0) and self.check_access:
-            # get groups for current user
-            groups = set(User.get_groups())
-            # get group ids for the rpc on the model
-            rpc_groups = ModelRpc.get_groups(obj.__name__, method)
-            if rpc_groups and (not groups & rpc_groups):
-                raise UserError(
-                    'Calling rpc {} on {} is not allowed!'.format(
-                        method, obj.__name__
-                    )
-                )
-
+    def convert(self, obj, *args, **kwargs):
         args = list(args)
         kwargs = kwargs.copy()
         if 'context' in kwargs:

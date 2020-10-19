@@ -59,7 +59,6 @@ def register():
         ModelAccess,
         ModelFieldAccess,
         ModelButton,
-        ModelRPC,
         ModelButtonRule,
         ModelButtonClick,
         ModelButtonReset,

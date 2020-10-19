@@ -31,7 +31,7 @@ __all__ = [
     'Model', 'ModelField', 'ModelAccess', 'ModelFieldAccess', 'ModelButton',
     'ModelButtonRule', 'ModelButtonClick', 'ModelButtonReset',
     'ModelData', 'PrintModelGraphStart', 'PrintModelGraph', 'ModelGraph',
-    'ModelWorkflowGraph', 'ModelRPC',
+    'ModelWorkflowGraph',
     ]
 logger = logging.getLogger(__name__)
 
@@ -1464,86 +1464,3 @@ class ModelWorkflowGraph(Report):
                 edge = pydot.Edge('"%s"' % from_, '"%s"' % to,
                     arrowhead='normal')
                 subgraph.add_edge(edge)
-
-
-class ModelRPC(ModelSQL):
-    "Model RPC"
-    __name__ = 'ir.model.rpc'
-
-    method = fields.Char('Method', required=True)
-    model = fields.Many2One(
-        'ir.model', 'Model', required=True, readonly=True,
-        ondelete='CASCADE', select=True
-    )
-    groups = fields.Many2Many(
-        'ir.model.rpc-res.group', 'rpc', 'group', 'Groups'
-    )
-    _groups_cache = Cache('ir.model.rpc.groups')
-
-    @classmethod
-    def __setup__(cls):
-        super(ModelRPC, cls).__setup__()
-        table = cls.__table__()
-        cls._sql_constraints += [(
-            'rpc_method_model_uniq',
-            Unique(table, table.method, table.model),
-            'The rpc method in model must be unique!'
-        ), ]
-        cls._order.insert(0, ('model', 'ASC'))
-
-    @classmethod
-    def check_not_button_rpc(cls, records):
-        pool = Pool()
-        for r in records:
-            buttons = pool.get(r.model.model)._buttons.keys()
-            if r.method in buttons:
-                cls.raise_user_error(
-                    "{} on model {} is button, use "
-                    "button access to control access.".format(r.method, r.model)
-                )
-
-    @classmethod
-    def validate(cls, records):
-        super(ModelRPC, cls).validate(records)
-        cls.check_not_button_rpc(records)
-
-    @classmethod
-    def create(cls, vlist):
-        result = super(ModelRPC, cls).create(vlist)
-        # Reset the cache for get_groups
-        cls._groups_cache.clear()
-        return result
-
-    @classmethod
-    def write(cls, buttons, values, *args):
-        super(ModelRPC, cls).write(buttons, values, *args)
-        # Reset the cache for get_groups
-        cls._groups_cache.clear()
-
-    @classmethod
-    def delete(cls, buttons):
-        super(ModelRPC, cls).delete(buttons)
-        # Reset the cache for get_groups
-        cls._groups_cache.clear()
-
-    @classmethod
-    def get_groups(cls, model, rpc):
-        '''
-        Return a set of group ids for the rpc on the model.
-        '''
-        key = (model, rpc)
-        groups = cls._groups_cache.get(key)
-        if groups is not None:
-            return groups
-
-        model_rpc_list = cls.search([
-            ('model.model', '=', model),
-            ('method', '=', rpc),
-        ])
-        if not model_rpc_list:
-            groups = set()
-        else:
-            model_rpc, = model_rpc_list
-            groups = set(g.id for g in model_rpc.groups)
-        cls._groups_cache.set(key, groups)
-        return groups
