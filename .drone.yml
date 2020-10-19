@@ -28,11 +28,28 @@ services:
       memory: 10MiB    
 
 steps:
-- name: test
-  image: python:2.7.18-stretch
+- name: py27
+  image: python:2.7
   commands:
     - pip install tox
     - tox -e py27-postgresql
+  resources:
+    requests:
+      cpu: 2000
+      memory: 2Gi      
+  environment:
+    PG_HOST: postgres
+    PG_USER: root
+    POSTGRESQL_URI: postgresql://root@postgres:5432/
+    REDIS_HOST: redis
+    REDIS_PORT: "6379"
+
+steps:
+- name: py38
+  image: python:3.8
+  commands:
+    - pip install tox
+    - tox -e py38-postgresql
   resources:
     requests:
       cpu: 2000
