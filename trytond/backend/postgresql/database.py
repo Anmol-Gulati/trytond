@@ -157,6 +157,11 @@ class Database(DatabaseInterface):
             params['host'] = uri.hostname
         if uri.port:
             params['port'] = uri.port
+        query_params = urllib.parse.parse_qs(uri.query)
+        if query_params.get('application_name'):
+            params['application_name'] = "-".join(
+                query_params['application_name']
+            )
         return params
 
     def connect(self):
