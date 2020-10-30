@@ -473,6 +473,16 @@
       </attribute>
     </optional>
   </define>
+  <define name="attlist.field" combine="interleave">
+    <optional>
+      <attribute name="is-copyable">
+        <choice>
+          <value>false</value>
+          <value>true</value>
+        </choice>
+      </attribute>
+    </optional>
+  </define>
   <define name="image">
     <element name="image">
       <ref name="attlist.image"/>
